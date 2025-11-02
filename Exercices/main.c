@@ -4,7 +4,8 @@
 
 // --- Definición de Variables Globales ---
 // (Aquí es donde "viven" las variables declaradas en el .h)
-uint16_t mem[MEM_SIZE];
+
+uint16_t mem[MEM_SIZE]; //int más largo
 uint16_t acc;
 uint16_t x;
 uint16_t pc;
