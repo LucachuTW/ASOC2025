@@ -59,41 +59,42 @@ void loop() {
 int main() {
     printf("\n");
     printf("╔═══════════════════════════════════════════════════════════════╗\n");
-    printf("║       PROGRAMA 2: CONTADOR ASCENDENTE EN SIMPLEZ-13         ║\n");
+    printf("║      PROGRAMA 1: OPERACIONES BÁSICAS EN SIMPLEZ-13          ║\n");
     printf("╚═══════════════════════════════════════════════════════════════╝\n");
     printf("\n");
-    printf("OBJETIVO: Implementar un bucle contador de 1 a 10\n");
-    printf("  - Uso de bucles con BZ (Branch if Zero)\n");
-    printf("  - Operación de resta inmediata (SUB #)\n");
-    printf("  - Control de flujo condicional\n");
-    printf("  - Actualización del flag Z\n");
+    printf("OBJETIVO: Demostrar las operaciones fundamentales\n");
+    printf("  - Carga inmediata (LD #)\n");
+    printf("  - Almacenamiento en memoria (ST)\n");
+    printf("  - Suma de valores (ADD)\n");
+    printf("  - Modo de direccionamiento directo\n");
     printf("\n");
     printf("ALGORITMO:\n");
-    printf("  1. Inicializar contador en X = 10\n");
-    printf("  2. Inicializar suma en AC = 0\n");
-    printf("  3. BUCLE:\n");
-    printf("     a. Sumar contador actual a AC\n");
-    printf("     b. Restar 1 al contador (X = X - 1)\n");
-    printf("     c. Si X != 0, volver al paso 3\n");
-    printf("  4. Guardar resultado\n");
-    printf("  5. HALT\n");
+    printf("  1. Cargar valor 5 en AC\n");
+    printf("  2. Almacenar AC en dirección 0x20\n");
+    printf("  3. Cargar valor 3 en AC\n");
+    printf("  4. Almacenar AC en dirección 0x21\n");
+    printf("  5. Cargar valor 0 en AC\n");
+    printf("  6. Sumar contenido de 0x20 a AC (AC = 0 + 5 = 5)\n");
+    printf("  7. Sumar contenido de 0x21 a AC (AC = 5 + 3 = 8)\n");
+    printf("  8. Almacenar resultado en 0x22\n");
+    printf("  9. HALT\n");
     printf("\n");
-    printf("RESULTADO ESPERADO: AC = 1+2+3+4+5+6+7+8+9+10 = 55\n");
+    printf("RESULTADO ESPERADO: mem[0x22] = 8\n");
     printf("\n");
     printf("Presiona Enter para comenzar...\n");
     getchar();
 
-    // Programa: Contador que suma de 1 a 10
+    // Programa: Suma simple de dos números
     uint16_t example_program[] = {
         // Dir  | Hex   | Ensamblador      | Explicación
-        /* 000 */ 0xB8A, // LD.X, #10        ; X = 10 (contador)
-        /* 001 */ 0xA80, // LD.A, #0         ; AC = 0 (acumulador de suma)
-        /* 002 */ 0x03E, // ST.X, /3E        ; Guardar X en mem[0x3E] (temporal)
-        /* 003 */ 0x23E, // ADD.A, /3E       ; AC = AC + X
-        /* 004 */ 0xD81, // SUB.X, #1        ; X = X - 1
-        /* 005 */ 0x803, // BZ.X, /03        ; Si X == 0, salta a 0x03 (siguiente instr después del bucle)
-        /* 006 */ 0x602, // BR, /02          ; Salto incondicional a 0x02 (repetir bucle)
-        /* 007 */ 0x03F, // ST.A, /3F        ; Guardar resultado en mem[0x3F]
+        /* 000 */ 0xA85, // LD.A, #5         ; AC = 5
+        /* 001 */ 0x020, // ST.A, /20        ; mem[0x20] = AC = 5
+        /* 002 */ 0xA83, // LD.A, #3         ; AC = 3
+        /* 003 */ 0x021, // ST.A, /21        ; mem[0x21] = AC = 3
+        /* 004 */ 0xA80, // LD.A, #0         ; AC = 0 (resetear)
+        /* 005 */ 0x420, // ADD.A, /20       ; AC = AC + mem[0x20] = 0 + 5 = 5
+        /* 006 */ 0x421, // ADD.A, /21       ; AC = AC + mem[0x21] = 5 + 3 = 8
+        /* 007 */ 0x022, // ST.A, /22        ; mem[0x22] = AC = 8 (guardar resultado)
         /* 008 */ 0xE00, // HALT             ; Detener
     };
 
@@ -123,22 +124,16 @@ int main() {
     printf("  PC (Contador):       0x%03X (%d decimal)\n", pc & 0xFFF, pc & 0xFFF);
     printf("\n");
     printf("VALORES EN MEMORIA:\n");
-    printf("  mem[0x3E] = 0x%03X (%d) - Última iteración del contador\n", mem[0x3E], mem[0x3E]);
-    printf("  mem[0x3F] = 0x%03X (%d) - RESULTADO: Suma de 1 a 10\n", mem[0x3F], mem[0x3F]);
-    printf("\n");
-    printf("CÁLCULO: 1+2+3+4+5+6+7+8+9+10 = 55\n");
+    printf("  mem[0x20] = 0x%03X (%d) - Primer operando\n", mem[0x20], mem[0x20]);
+    printf("  mem[0x21] = 0x%03X (%d) - Segundo operando\n", mem[0x21], mem[0x21]);
+    printf("  mem[0x22] = 0x%03X (%d) - RESULTADO: 5 + 3 = 8\n", mem[0x22], mem[0x22]);
     printf("\n");
     
-    if (mem[0x3F] == 55) {
+    if (mem[0x22] == 8) {
         printf("✓ ÉXITO: El resultado es correcto!\n");
     } else {
-        printf("✗ ERROR: Se esperaba 55, se obtuvo %d\n", mem[0x3F]);
+        printf("✗ ERROR: Se esperaba 8, se obtuvo %d\n", mem[0x22]);
     }
-    printf("\n");
-    printf("CONCEPTO APRENDIDO:\n");
-    printf("  - Los bucles se implementan con saltos condicionales (BZ) e incondicionales (BR)\n");
-    printf("  - El flag Z se actualiza automáticamente después de operaciones aritméticas\n");
-    printf("  - SUB # permite decrementar contadores eficientemente\n");
     printf("\n");
     
     return 0;
