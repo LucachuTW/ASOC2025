@@ -95,7 +95,7 @@ int main() {
         /* 002 */ 0xB85, // LD.X, #5         ; X = 5 (contador externo, n)
         
         // BUCLE EXTERNO: para cada número de 5 a 1
-        /* 003 */ 0x031, // ST.X, /31        ; mem[0x31] = X (guardar n actual)
+        /* 003 */ 0x131, // ST.X, /31        ; mem[0x31] = X (guardar n actual)
         
         // Preparar multiplicación: resultado_temp = 0
         /* 004 */ 0xA80, // LD.A, #0         ; AC = 0 (acumulador para suma)
@@ -107,7 +107,7 @@ int main() {
         
         // BUCLE INTERNO: sumar 'resultado' n veces
         /* 008 */ 0x233, // LD.A, /33        ; AC = contador interno
-        /* 009 */ 0x800, // BZ, /00          ; Si contador = 0, salir del bucle interno
+        /* 009 */ 0x811, // BZ, /11          ; Si contador = 0, salir del bucle interno
         /* 00A */ 0x232, // LD.A, /32        ; AC = resultado temporal
         /* 00B */ 0x430, // ADD.A, /30       ; AC += resultado anterior
         /* 00C */ 0x032, // ST.A, /32        ; Guardar temp
@@ -124,7 +124,7 @@ int main() {
         /* 013 */ 0x231, // LD.A, /31        ; AC = n
         /* 014 */ 0xC81, // SUB.A, #1        ; n--
         /* 015 */ 0x031, // ST.A, /31        ; Guardar n
-        /* 016 */ 0x803, // BZ, /03          ; Si n = 0, terminar
+        /* 016 */ 0x818, // BZ, /18          ; Si n = 0, terminar
         /* 017 */ 0x603, // BR, /03          ; Repetir bucle externo (volver a 0x03)
         
         /* 018 */ 0xE00, // HALT             ; Detener
