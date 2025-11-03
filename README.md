@@ -88,16 +88,6 @@ Use responsible disclosure if you accidentally discover a real vulnerability. Al
 **Objective:** Gain root via misconfigured sudoers
 ```
 
----
-
-## 👥 Team — Virus Payal
-
-* Lucas González Fiz
-* [Add other members here]
-
-Contact: add team alias or preferred contact method in branch `main` README (no personal secrets).
-
----
 
 ## 🧾 License & Use
 
