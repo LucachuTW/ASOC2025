@@ -3,16 +3,13 @@
 #include "simplez.h"
 
 // --- Definición de Variables Globales ---
-// (Aquí es donde "viven" las variables declaradas en el .h)
-
-uint16_t mem[MEM_SIZE]; //int más largo
+uint16_t mem[MEM_SIZE];
 uint16_t acc;
 uint16_t x;
 uint16_t pc;
 struct status status;
 
 // Array de punteros a funciones para mapear opcodes a funciones
-// Sigue el orden de la tabla de la página 20 
 void (*iset[])(uint8_t reg, uint16_t data) = {
     st,         // 000 (0)
     ld,         // 001 (1)
@@ -21,143 +18,123 @@ void (*iset[])(uint8_t reg, uint16_t data) = {
     bz,         // 100 (4)
     ld_sharp,   // 101 (5)
     sub_sharp,  // 110 (6)
-    halt        // 111 (7) - Simplificado, 11100 en el PDF 
+    halt        // 111 (7)
 };
 
 // Nombres para el depurador
 char *iset_names[] = {"ST", "LD", "ADD", "BR", "BZ", "LD #", "SUB #", "HALT"};
 
-
-/**
- * @brief Ciclo principal de la CPU: Fetch, Decode, Execute.
- */
 void loop() {
-    // El bucle se detiene cuando la instrucción HALT pone status.h a 1
     while (!status.h) {
-        
-        // --- 1. FETCH (BÚSQUEDA) ---
-        // Lee la instrucción de 12 bits de la memoria
-        uint16_t inst = mem[pc] & 0xFFF; // Aseguramos 12 bits
-
-        
-        // --- 2. DECODE (DECODIFICACIÓN) ---
-        // Descompone la instrucción según el formato de la pág. 8 [cite: 98-102]
-        
-        // Bits 11-9: Código de Operación (CO) [cite: 101]
-        uint8_t op = (inst >> 9) & 0x7; 
-        
-        // Bit 8: Registro (R). 0=AC, 1=X [cite: 106, 107]
+        uint16_t inst = mem[pc] & 0xFFF;
+        uint8_t op = (inst >> 9) & 0x7;
         uint8_t reg = (inst >> 8) & 0x1;
-        
-        // Bits 7-6: Modo de Direccionamiento (J, I) [cite: 108]
         uint8_t dirm = (inst >> 6) & 0x3;
-        
-        // Bits 5-0: Campo de Dirección (CD) [cite: 102]
         uint16_t cd = inst & 0x3F;
 
-        
-        // --- 3. CÁLCULO DE DIRECCIÓN EFECTIVA (EA) / OBTENCIÓN DE DATO ---
-        
-        uint16_t data; // Almacenará la Dirección Efectiva (EA) o el literal
-
-        // Las instrucciones 5 (LD #) y 6 (SUB #) son especiales:
-        // Siempre usan modo inmediato y 'cd' es el dato literal [cite: 315]
+        uint16_t data;
         if (op == 5 || op == 6) {
-            data = cd; // El dato es el propio campo CD [cite: 201]
+            data = cd;
         } else {
-            // Para el resto (ST, LD, ADD, BR, BZ), calculamos la EA
-            // según la tabla resumen de la pág. 15 [cite: 225]
-            
             switch (dirm) {
-                case 0: // 00: Directo
-                    data = cd; // DE = (CD)
-                    break;
-                case 1: // 01: Indirecto
-                    data = mem[cd]; // DE = ((CD))
-                    break;
-                case 2: // 10: Indexado
-                    data = cd + x; // DE = (CD) + (X)
-                    break;
-                case 3: // 11: Indirecto e Indexado
-                    data = mem[cd] + x; // DE = ((CD)) + (X)
-                    break;
+                case 0: data = cd; break;
+                case 1: data = mem[cd]; break;
+                case 2: data = cd + x; break;
+                case 3: data = mem[cd] + x; break;
             }
         }
 
-        // --- 4. EXECUTE (EJECUCIÓN) ---
-        
-        // Impresión de depuración (como la que teníais)
         printf("DEBUG: PC:%03X | Inst:%03X | OP: %s (R:%d, M:%d, CD:%02X) | EA/Dato: %03X\n", 
                 pc, inst, iset_names[op], reg, dirm, cd, data);
         
-        // Llama a la función correcta (ST, LD, ADD...) usando el opcode
-        // como índice en el array de punteros a funciones.
         iset[op](reg, data);
-
+        pc++;
         
-        // --- 5. ACTUALIZAR PC ---
-        pc++; // Avanza a la siguiente instrucción
-        
-        // Impresión de estado de registros
         printf("       -> Estado: PC:%03X, AC:%03X, X:%03X, Z_flag:%d, H_flag:%d\n", 
                 pc, acc & 0xFFF, x & 0xFFF, status.z, status.h);
-        getchar(); // Espera a que el usuario pulse Enter
+        getchar();
     }
 }
 
-/**
- * @brief Punto de entrada del Emulador.
- */
 int main() {
-    // --- Carga del Programa en Memoria ---
-    // Este es un nuevo programa de ejemplo que SÍ funciona con Simplez-13
-    // y prueba varios modos de direccionamiento.
+    printf("\n");
+    printf("╔═══════════════════════════════════════════════════════════════╗\n");
+    printf("║      PROGRAMA 1: OPERACIONES BÁSICAS EN SIMPLEZ-13          ║\n");
+    printf("╚═══════════════════════════════════════════════════════════════╝\n");
+    printf("\n");
+    printf("OBJETIVO: Demostrar las operaciones fundamentales\n");
+    printf("  - Carga inmediata (LD #)\n");
+    printf("  - Almacenamiento en memoria (ST)\n");
+    printf("  - Suma de valores (ADD)\n");
+    printf("  - Modo de direccionamiento directo\n");
+    printf("\n");
+    printf("ALGORITMO:\n");
+    printf("  1. Cargar valor 5 en AC\n");
+    printf("  2. Almacenar AC en dirección 0x20\n");
+    printf("  3. Cargar valor 3 en AC\n");
+    printf("  4. Almacenar AC en dirección 0x21\n");
+    printf("  5. Cargar valor 0 en AC\n");
+    printf("  6. Sumar contenido de 0x20 a AC (AC = 0 + 5 = 5)\n");
+    printf("  7. Sumar contenido de 0x21 a AC (AC = 5 + 3 = 8)\n");
+    printf("  8. Almacenar resultado en 0x22\n");
+    printf("  9. HALT\n");
+    printf("\n");
+    printf("RESULTADO ESPERADO: mem[0x22] = 8\n");
+    printf("\n");
+    printf("Presiona Enter para comenzar...\n");
+    getchar();
+
+    // Programa: Suma simple de dos números
     uint16_t example_program[] = {
-        // Dirección | Contenido | Ensamblador     | Explicación
-        /* 0x000 */  0xA87,     // LD.A, #7        ; AC = 7
-        /* 0x001 */  0xB94,     // LD.X, #20       ; X = 20 (decimal)
-        /* 0x002 */  0x014,     // ST.A, /20       ; mem[20] = AC (o sea, 7)
-        /* 0x003 */  0xA80,     // LD.A, #0        ; AC = 0
-        /* 0x004 */  0x480,     // ADD.A, /0[.X]   ; AC = AC + mem[0 + X]
-                               //                 ; AC = 0 + mem[0 + 20]
-                               //                 ; AC = 0 + mem[20]
-                               //                 ; AC = 0 + 7. AC_final = 7
-        /* 0x005 */  0x442,     // ADD.A, [/10]    ; AC = AC + mem[mem[10]]
-                               //                 ; AC = 7 + mem[5]
-                               //                 ; AC = 7 + 0xE00 = 0xE07
-        /* 0x006 */  0xE00,     // HALT            ; Detiene la máquina
-        
-        // --- Zona de Datos ---
-        /* 0x007 */  0x000,
-        /* 0x008 */  0x000,
-        /* 0x009 */  0x000,
-        /* 0x00A */  0x005      // Puntero para el ADD indirecto
+        // Dir  | Hex   | Ensamblador      | Explicación
+        /* 000 */ 0xA85, // LD.A, #5         ; AC = 5
+        /* 001 */ 0x020, // ST.A, /20        ; mem[0x20] = AC = 5
+        /* 002 */ 0xA83, // LD.A, #3         ; AC = 3
+        /* 003 */ 0x021, // ST.A, /21        ; mem[0x21] = AC = 3
+        /* 004 */ 0xA80, // LD.A, #0         ; AC = 0 (resetear)
+        /* 005 */ 0x420, // ADD.A, /20       ; AC = AC + mem[0x20] = 0 + 5 = 5
+        /* 006 */ 0x421, // ADD.A, /21       ; AC = AC + mem[0x21] = 5 + 3 = 8
+        /* 007 */ 0x022, // ST.A, /22        ; mem[0x22] = AC = 8 (guardar resultado)
+        /* 008 */ 0xE00, // HALT             ; Detener
     };
 
-    // Inicializa toda la memoria a 0
+    // Inicializa memoria
     memset(mem, 0, sizeof(mem));
-    
-    // Copia el programa de ejemplo al inicio de la memoria
     memcpy(mem, example_program, sizeof(example_program));
 
-    // --- Inicialización de la CPU ---
+    // Inicializa CPU
     pc = 0;
     acc = 0;
     x = 0;
     status.z = 0;
     status.h = 0;
 
-    printf("Iniciando emulador Simplez-13. Presiona Enter para avanzar cada ciclo.\n");
-
-    // Inicia el ciclo de la CPU
+    printf("\n=== INICIANDO EJECUCIÓN ===\n\n");
+    
+    // Ejecuta
     loop();
 
-    printf("--- EJECUCIÓN DETENIDA (HALT) ---\n");
-    printf("Estado final:\n");
-    printf("AC: %03X (%d)\n", acc & 0xFFF, acc & 0xFFF);
-    printf("X:  %03X (%d)\n", x & 0xFFF, x & 0xFFF);
-    printf("PC: %03X (%d)\n", pc & 0xFFF, pc & 0xFFF);
-    printf("mem[20]: %03X (%d)\n", mem[20], mem[20]);
+    printf("\n╔═══════════════════════════════════════════════════════════════╗\n");
+    printf("║                    EJECUCIÓN COMPLETADA                      ║\n");
+    printf("╚═══════════════════════════════════════════════════════════════╝\n");
+    printf("\n");
+    printf("ESTADO FINAL DE LA CPU:\n");
+    printf("  AC (Acumulador):     0x%03X (%d decimal)\n", acc & 0xFFF, acc & 0xFFF);
+    printf("  X  (Índice):         0x%03X (%d decimal)\n", x & 0xFFF, x & 0xFFF);
+    printf("  PC (Contador):       0x%03X (%d decimal)\n", pc & 0xFFF, pc & 0xFFF);
+    printf("\n");
+    printf("VALORES EN MEMORIA:\n");
+    printf("  mem[0x20] = 0x%03X (%d) - Primer operando\n", mem[0x20], mem[0x20]);
+    printf("  mem[0x21] = 0x%03X (%d) - Segundo operando\n", mem[0x21], mem[0x21]);
+    printf("  mem[0x22] = 0x%03X (%d) - RESULTADO: 5 + 3 = 8\n", mem[0x22], mem[0x22]);
+    printf("\n");
+    
+    if (mem[0x22] == 8) {
+        printf("✓ ÉXITO: El resultado es correcto!\n");
+    } else {
+        printf("✗ ERROR: Se esperaba 8, se obtuvo %d\n", mem[0x22]);
+    }
+    printf("\n");
     
     return 0;
 }

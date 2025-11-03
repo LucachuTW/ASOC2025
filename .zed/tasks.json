@@ -1,9 +1,10 @@
 [
-	{
+	/*{
 		"label": "🐍 Ejecutar Python (python3)",
-		"command": "python3",
+		"command": "bash",
 		"args": [
-			"$ZED_FILE"
+			"-lc",
+			"python3 \"$ZED_FILE\""
 		],
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
@@ -13,7 +14,8 @@
 		"label": "🐚 Ejecutar Shell Script",
 		"command": "bash",
 		"args": [
-			"$ZED_FILE"
+			"-lc",
+			"chmod +x \"$ZED_FILE\" && bash \"$ZED_FILE\""
 		],
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
@@ -23,19 +25,20 @@
 		"label": "✅ Ejecutar Script (.sh/.py)",
 		"command": "bash",
 		"args": [
-			"-c",
+			"-lc",
 			"ext=\"${ZED_FILE##*.}\"; if [ \"$ext\" = \"py\" ]; then python3 \"$ZED_FILE\"; elif [ \"$ext\" = \"sh\" ]; then chmod +x \"$ZED_FILE\" && bash \"$ZED_FILE\"; else echo \"Este task solo soporta .sh y .py (archivo actual: $ZED_FILE)\"; exit 1; fi"
 		],
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
 		"reveal": "always"
 	},
+	*/
 	{
 		"label": "🔨 Compilar y Ejecutar Simplez-13",
-		"command": "sh",
+		"command": "bash",
 		"args": [
-			"-c",
-			"cd $ZED_WORKTREE_ROOT/Exercices && make clean && make && ./emulador"
+			"-lc",
+			"cd \"$ZED_WORKTREE_ROOT/Exercices\" && make clean && make && ./emulador"
 		],
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
@@ -43,15 +46,15 @@
 	},
 	{
 		"label": "🎯 Ejecutar Ejemplo Simplez-13",
-		"command": "sh",
+		"command": "bash",
 		"args": [
-			"-c",
-			"cd $ZED_WORKTREE_ROOT/Exercices && ./run_example.sh"
+			"-lc",
+			"cd \"$ZED_WORKTREE_ROOT/Exercices\" && bash ./run_example.sh"
 		],
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
 		"reveal": "always"
-	},
+	}, /*
 	{
 		"label": "📝 Compilar solo (make)",
 		"command": "make",
@@ -71,13 +74,13 @@
 		"use_new_terminal": false,
 		"allow_concurrent_runs": false,
 		"reveal": "always"
-	},
+	},*/
 	{
 		"label": "🔍 Ver memoria del emulador",
-		"command": "sh",
+		"command": "bash",
 		"args": [
-			"-c",
-			"cd $ZED_WORKTREE_ROOT/Exercices && ./emulador 2>&1 | grep -A 10 'MEMORIA'"
+			"-lc",
+			"cd \"$ZED_WORKTREE_ROOT/Exercices\" && ./emulador 2>&1 | grep -A 10 'MEMORIA'"
 		],
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
