@@ -70,10 +70,8 @@ Use responsible disclosure if you accidentally discover a real vulnerability. Al
 
 ## 🛠 Tools & tech we use
 
-* Linux (Kali/Ubuntu) — terminal is our IDE.
 * Python & Bash — automation and exploitation scripts.
 * Git, GitHub — version control & collaboration.
-* Wireshark, Burp Suite, Ghidra — analysis & reversing when needed.
 * Docker / Vagrant — reproducible labs.
 
 ---
@@ -117,9 +115,4 @@ Exploit knowledge is a tool. Use it to defend, not to destroy.
 — Virus Payal
 ```
 
----
 
-Want me to:
-
-* add a dark-themed README badge and ASCII banner for the repo front page?
-* generate a template `writeup.md` file to put inside each `week-{n}` branch?
