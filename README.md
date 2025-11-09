@@ -1,4 +1,4 @@
-# 🖤 ASOC - Cybersecurity Course 
+aq# 🖤 ASOC - Cybersecurity Course
 
 ```
 ██╗   ██╗██╗██████╗ ██╗   ██╗███████╗    ██████╗  █████╗ ██╗   ██╗ █████╗ ██╗     
@@ -100,7 +100,7 @@ If you want to reuse code or writeups, attribute the team and never use the mate
 
 ```
 > ./learn.sh --mode=aggressive
-Loading…  
+Loading…
 Exploit knowledge is a tool. Use it to defend, not to destroy.
 — Virus Payal
 ```
