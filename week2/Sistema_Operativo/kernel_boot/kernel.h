@@ -74,8 +74,17 @@ uint32_t get_kernel_size(void);
 // =================== UTILIDADES KERNEL ===================
 uint32_t kernel_checksum(void);
 void countdown(int seconds);
+void progress_bar_ms(int total_ms, const char* label);
+void progress_bar_inline_ms(int total_ms, int width);
 bool detect_optional_module(void);
 void show_module_status(void);
+bool load_kernel_post(void); // Carga 1 sector de módulo post y actualiza flags
+// Sonda previa del módulo (lee a buffer interno y valida magic). Finalizar copia tras barra.
+bool module_probe(void);
+bool module_finalize_after_bar(void);
+
+// ATA PIO mínimo (28-bit LBA, 1 sector)
+int ata_read28(uint32_t lba, void* dst);
 
 // =================== COMPROBACIONES HW ===================
 bool check_protected_mode(void);

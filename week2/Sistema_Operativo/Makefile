@@ -54,14 +54,32 @@ stage2.bin: boot/stage2.asm kernel_sects.inc
 		exit 1; \
 	fi
 
+# === KERNEL PADDING A MÚLTIPLO DE 512 ===
+kernel_padded.bin: kernel.bin kernel_sects.inc
+	cp kernel.bin kernel_padded.bin
+	@size=$$(stat -f%z kernel.bin 2>/dev/null || stat -c%s kernel.bin); \
+	sectors=$$((($$size + 511) / 512)); \
+	pad=$$((sectors * 512)); \
+	truncate -s $$pad kernel_padded.bin; \
+	echo "Kernel padded a $$pad bytes ($$sectors sectores)"
+
 # === IMAGEN FINAL DEL DISCO ===
-os-image.bin: stage1.bin stage2.bin kernel.bin
-	cat stage1.bin stage2.bin kernel.bin > os-image.bin
+module_post.o: kernel_post/module_post.c
+	$(CC) $(CFLAGS) -c kernel_post/module_post.c -o module_post.o
+
+module_post.bin: module_post.o
+	$(OBJCOPY) -O binary module_post.o module_post.bin
+	# Asegurar tamaño de sector (512 bytes)
+	truncate -s 512 module_post.bin
+
+os-image.bin: stage1.bin stage2.bin kernel_padded.bin module_post.bin
+	cat stage1.bin stage2.bin kernel_padded.bin module_post.bin > os-image.bin
 	truncate -s 1440k os-image.bin
 	@echo "=== Layout del disco ==="
 	@echo "Sector 0:     Stage1 (512 bytes)"
 	@echo "Sectores 1-2: Stage2 (1024 bytes)"
-	@echo "Sector 3+:    Kernel ($$(stat -f%z kernel.bin 2>/dev/null || stat -c%s kernel.bin) bytes)"
+	@echo "Sectores 3-?: Kernel ($$(stat -f%z kernel_padded.bin 2>/dev/null || stat -c%s kernel_padded.bin) bytes)"
+	@echo "Ultimo sector kernel +1: module_post.bin (512 bytes)"
 
 # === EJECUTAR ===
 run: os-image.bin

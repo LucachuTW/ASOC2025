@@ -98,35 +98,11 @@ start:
     call enable_a20
 
     ; ===========================================
-    ; PASO EXTRA (AÚN EN MODO REAL): Cargar módulo opcional
-    ; Se coloca inmediatamente después del kernel en disco.
-    ; Dirección destino elegida: 0x12000 (segmento 0x1200)
+    ; PASO EXTRA: (AHORA lo hará el kernel)
+    ; Dejar indicadores de módulo en 0 para que el kernel lo cargue mediante ATA PIO.
     ; ===========================================
-    mov si, msg_module_try
-    call print
-    mov ax, 0x1200      ; ES = 0x1200 -> 0x12000 físico
-    mov es, ax
-    xor bx, bx
-    mov ah, 0x02        ; Leer 1 sector
-    mov al, 1
-    mov ch, 0
-    mov cl, 4 + KS_COUNT ; Sector inmediatamente después del kernel
-    mov dh, 0
-    mov dl, [boot_drive]
-    int 0x13
-    jc .module_fail
-    cmp al, 1
-    jne .module_fail
-    ; Éxito
-    mov byte [MODULE_OK], 1
-    mov byte [MODULE_SECTS], 1
-    mov si, msg_module_ok
-    call print
-    jmp .module_done
-.module_fail:
-    mov si, msg_module_fail
-    call print
-.module_done:
+    mov byte [MODULE_OK], 0
+    mov byte [MODULE_SECTS], 0
     
     ; ===========================================
     ; PASO 3: CARGAR GDT Y CAMBIAR A MODO PROTEGIDO
