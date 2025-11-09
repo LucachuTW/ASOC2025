@@ -41,7 +41,16 @@ typedef unsigned int uintptr_t;
 // Macros para colores
 #define VGA_COLOR(bg, fg) ((bg << 4) | fg)
 
-// =================== FUNCIONES PÚBLICAS ===================
+// =================== TEMA (paleta coherente) ===================
+#define THEME_BG        COLOR_BLACK
+#define THEME_TEXT      COLOR_WHITE
+#define THEME_MUTED     COLOR_LIGHT_GRAY
+#define THEME_PRIMARY   COLOR_LIGHT_CYAN
+#define THEME_SECONDARY COLOR_LIGHT_MAGENTA
+#define THEME_ACCENT    COLOR_YELLOW
+#define THEME_OK        COLOR_LIGHT_GREEN
+#define THEME_ERR       COLOR_LIGHT_RED
+
 // =================== ESTRUCTURAS ===================
 struct GDTR { uint16_t limit; uint32_t base; } __attribute__((packed));
 
@@ -57,7 +66,7 @@ void print_separator(char ch, unsigned char attr);
 void print_centered(const char* s, unsigned char attr);
 void print_kv(const char* key, const char* val, unsigned char ka, unsigned char va);
 void print_status_checked(const char* text, bool ok);
-void newline(unsigned char attr); // expone salto de línea controlado
+void newline(unsigned char attr); // salto de línea que además limpia hasta fin de línea
 void print_hex(uint32_t value);
 void print_dec(uint32_t value);
 uint32_t get_kernel_size(void);

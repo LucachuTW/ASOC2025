@@ -13,6 +13,9 @@ extern uint32_t _end;
 
 // =================== AUXILIARES PRIVADOS ===================
 void newline(uint8_t attr) {
+    // Limpiar hasta final de línea para evitar residuos visuales
+    int off = cursor_y * VGA_WIDTH + cursor_x;
+    for (int i = cursor_x; i < VGA_WIDTH; ++i) vga_buffer[off + (i - cursor_x)] = (uint16_t)(' ') | ((uint16_t)attr << 8);
     cursor_x = 0; cursor_y++; if (cursor_y >= VGA_HEIGHT) cursor_y = 0;
 }
 
@@ -33,7 +36,7 @@ static void print_dec_attr(uint32_t value, uint8_t a) {
 
 // =================== VIDEO / SALIDA ===================
 void clear_screen(void) {
-    uint16_t blank = vga_entry(' ', vga_attr(COLOR_BLACK, COLOR_LIGHT_GRAY));
+    uint16_t blank = vga_entry(' ', vga_attr(THEME_BG, THEME_MUTED));
     for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; ++i) vga_buffer[i] = blank;
     cursor_x = 0; cursor_y = 0;
 }
@@ -79,10 +82,10 @@ void print_kv(const char* key, const char* val, unsigned char ka, unsigned char 
 }
 
 void print_status_checked(const char* text, bool ok) {
-    uint8_t gray = vga_attr(COLOR_BLACK, COLOR_LIGHT_GRAY);
-    uint8_t okc  = vga_attr(COLOR_BLACK, COLOR_LIGHT_GREEN);
-    uint8_t errc = vga_attr(COLOR_BLACK, COLOR_LIGHT_RED);
-    uint8_t white= vga_attr(COLOR_BLACK, COLOR_WHITE);
+    uint8_t gray = vga_attr(THEME_BG, THEME_MUTED);
+    uint8_t okc  = vga_attr(THEME_BG, THEME_OK);
+    uint8_t errc = vga_attr(THEME_BG, THEME_ERR);
+    uint8_t white= vga_attr(THEME_BG, THEME_TEXT);
     print_string("[", gray); putchar(' ', gray);
     print_string(ok ? "OK" : "ERR", ok ? okc : errc); putchar(' ', gray);
     print_string("] ", gray);
@@ -90,8 +93,8 @@ void print_status_checked(const char* text, bool ok) {
     newline(white);
 }
 
-void print_hex(uint32_t v) { print_hex32_attr(v, vga_attr(COLOR_BLACK, COLOR_WHITE)); }
-void print_dec(uint32_t v) { print_dec_attr(v, vga_attr(COLOR_BLACK, COLOR_WHITE)); }
+void print_hex(uint32_t v) { print_hex32_attr(v, vga_attr(THEME_BG, THEME_TEXT)); }
+void print_dec(uint32_t v) { print_dec_attr(v, vga_attr(THEME_BG, THEME_TEXT)); }
 
 uint32_t get_kernel_size(void) { return (uint32_t)((unsigned int)&_end - (unsigned int)&_start); }
 
@@ -127,28 +130,24 @@ void show_module_status(void) {
     uint8_t ksects = status[1];
     uint8_t mod = status[2];
     uint8_t msects = status[3];
-    uint8_t a_hdr = vga_attr(COLOR_MAGENTA, COLOR_BLACK);
+    uint8_t a_hdr = vga_attr(THEME_BG, THEME_SECONDARY);
     print_separator('~', a_hdr);
-    print_centered("ESTADO DE CARGA", vga_attr(COLOR_MAGENTA, COLOR_WHITE));
+    print_centered("ESTADO DE CARGA", vga_attr(THEME_BG, THEME_TEXT));
     print_separator('~', a_hdr);
-    print_kv("Disco kernel:", disk ? "OK" : "FALLO", vga_attr(COLOR_BLACK, COLOR_LIGHT_GRAY), disk ? vga_attr(COLOR_BLACK, COLOR_LIGHT_GREEN) : vga_attr(COLOR_BLACK, COLOR_LIGHT_RED));
-    // Convertir sectores kernel a decimal simple
-    // sectores kernel
-    char sbuf[4];
-    sbuf[0] = (ksects/10)? ('0'+ (ksects/10)) : '0';
-    sbuf[1] = '0'+ (ksects%10);
-    sbuf[2] = 0;
-    print_kv("Sectores kernel:", sbuf, vga_attr(COLOR_BLACK, COLOR_LIGHT_GRAY), vga_attr(COLOR_BLACK, COLOR_WHITE));
-    print_kv("Modulo opcional:", mod ? "CARGADO" : "NO", vga_attr(COLOR_BLACK, COLOR_LIGHT_GRAY), mod ? vga_attr(COLOR_BLACK, COLOR_LIGHT_GREEN) : vga_attr(COLOR_BLACK, COLOR_LIGHT_RED));
-    if (mod) print_kv("Sectores modulo:", msects==1?"1":"?", vga_attr(COLOR_BLACK, COLOR_LIGHT_GRAY), vga_attr(COLOR_BLACK, COLOR_WHITE));
+    print_kv("Disco kernel:", disk ? "OK" : "FALLO", vga_attr(THEME_BG, THEME_MUTED), disk ? vga_attr(THEME_BG, THEME_OK) : vga_attr(THEME_BG, THEME_ERR));
+    // sectores kernel como decimal de 2 cifras
+    char sbuf[3]; sbuf[0] = (ksects/10)? ('0'+ (ksects/10)) : '0'; sbuf[1] = '0'+ (ksects%10); sbuf[2] = 0;
+    print_kv("Sectores kernel:", sbuf, vga_attr(THEME_BG, THEME_MUTED), vga_attr(THEME_BG, THEME_TEXT));
+    print_kv("Modulo opcional:", mod ? "CARGADO" : "NO", vga_attr(THEME_BG, THEME_MUTED), mod ? vga_attr(THEME_BG, THEME_OK) : vga_attr(THEME_BG, THEME_ERR));
+    if (mod) print_kv("Sectores modulo:", msects==1?"1":"?", vga_attr(THEME_BG, THEME_MUTED), vga_attr(THEME_BG, THEME_TEXT));
 }
 
 // =================== COUNTDOWN ===================
 void countdown(int seconds) {
     for (int s = seconds; s > 0; --s) {
         clear_screen();
-        uint8_t bg = (s >= 3) ? COLOR_RED : (s==2 ? COLOR_YELLOW : COLOR_LIGHT_GREEN);
-        uint8_t a = vga_attr(bg, COLOR_WHITE);
+        uint8_t bg = (s >= 3) ? THEME_ERR : (s==2 ? THEME_ACCENT : THEME_OK);
+        uint8_t a = vga_attr(bg, THEME_TEXT);
         print_separator('=', a);
         print_centered("INICIANDO PSEUDOKERNEL", a);
         print_centered("Cuenta atras", a);

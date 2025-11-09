@@ -3,7 +3,7 @@ LD = x86_64-elf-ld
 OBJCOPY = x86_64-elf-objcopy
 ASM = nasm
 
-CFLAGS = -m32 -ffreestanding -fno-pic -nostdlib -O0 -g -Ikernel
+CFLAGS = -m32 -ffreestanding -fno-pic -nostdlib -O0 -g -Ikernel_boot
 LDFLAGS = -m elf_i386 -T linker.ld -nostdlib
 ASMFLAGS = -f bin
 
@@ -21,14 +21,14 @@ stage1.bin: boot/stage1.asm
 	fi
 
 # === KERNEL ===
-start.o: kernel/start.S
-	$(CC) $(CFLAGS) -c kernel/start.S -o start.o
+start.o: kernel_boot/start.S
+	$(CC) $(CFLAGS) -c kernel_boot/start.S -o start.o
 
-kernel.o: kernel/kernel.c kernel/kernel.h kernel/kernelfunciones.c
-	$(CC) $(CFLAGS) -c kernel/kernel.c -o kernel.o
+kernel.o: kernel_boot/kernel.c kernel_boot/kernel.h kernel_boot/kernelfunciones.c
+	$(CC) $(CFLAGS) -c kernel_boot/kernel.c -o kernel.o
 
-kernelfunciones.o: kernel/kernelfunciones.c kernel/kernel.h
-	$(CC) $(CFLAGS) -c kernel/kernelfunciones.c -o kernelfunciones.o
+kernelfunciones.o: kernel_boot/kernelfunciones.c kernel_boot/kernel.h
+	$(CC) $(CFLAGS) -c kernel_boot/kernelfunciones.c -o kernelfunciones.o
 
 kernel.elf: start.o kernel.o kernelfunciones.o linker.ld
 	$(LD) $(LDFLAGS) -o kernel.elf start.o kernel.o kernelfunciones.o
