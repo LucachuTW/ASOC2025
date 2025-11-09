@@ -3,8 +3,8 @@ LD = x86_64-elf-ld
 OBJCOPY = x86_64-elf-objcopy
 ASM = nasm
 
-CFLAGS = -m32 -ffreestanding -fno-pic -nostdlib -O0 -g -Ikernel_boot
-LDFLAGS = -m elf_i386 -T linker.ld -nostdlib
+CFLAGS = -m32 -ffreestanding -fno-pic -nostdlib -Os -g -ffunction-sections -fdata-sections -Ikernel_boot
+LDFLAGS = -m elf_i386 -T linker.ld -nostdlib --gc-sections
 ASMFLAGS = -f bin
 
 .PHONY: all clean run test-stage1 test-stage2 info debug
@@ -64,13 +64,19 @@ kernel_padded.bin: kernel.bin kernel_sects.inc
 	echo "Kernel padded a $$pad bytes ($$sectors sectores)"
 
 # === IMAGEN FINAL DEL DISCO ===
-module_post.o: kernel_post/module_post.c
-	$(CC) $(CFLAGS) -c kernel_post/module_post.c -o module_post.o
+# === MÓDULO POST (C + header ASM, 32-bit) ===
+module_header.o: kernel_post/module_header.S
+	$(CC) $(CFLAGS) -c kernel_post/module_header.S -o module_header.o
 
-module_post.bin: module_post.o
-	$(OBJCOPY) -O binary module_post.o module_post.bin
-	# Asegurar tamaño de sector (512 bytes)
-	truncate -s 512 module_post.bin
+module_entry.o: kernel_post/module_entry.c
+	$(CC) $(CFLAGS) -c kernel_post/module_entry.c -o module_entry.o
+
+modlib.o: kernel_post/modlib.c kernel_post/modlib.h
+	$(CC) $(CFLAGS) -c kernel_post/modlib.c -o modlib.o
+
+module_post.bin: module_header.o module_entry.o modlib.o kernel_post/module.ld
+	$(LD) -m elf_i386 -T kernel_post/module.ld -nostdlib -o module_post.bin module_header.o module_entry.o modlib.o
+	@echo "Modulo compilado: $$(stat -f%z module_post.bin 2>/dev/null || stat -c%s module_post.bin) bytes"
 
 os-image.bin: stage1.bin stage2.bin kernel_padded.bin module_post.bin
 	cat stage1.bin stage2.bin kernel_padded.bin module_post.bin > os-image.bin
@@ -83,7 +89,7 @@ os-image.bin: stage1.bin stage2.bin kernel_padded.bin module_post.bin
 
 # === EJECUTAR ===
 run: os-image.bin
-	qemu-system-i386 -drive format=raw,file=os-image.bin
+	qemu-system-i386 -no-reboot -drive format=raw,file=os-image.bin
 
 # === RECONSTRUCCIÓN CON TRACES DE MAKE ===
 debug:

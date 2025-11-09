@@ -59,6 +59,10 @@ void print_string_at(const char* s, unsigned char a, int x, int y) {
     cursor_x = ox; cursor_y = oy;
 }
 
+// Acceso al cursor
+void get_cursor(int* x, int* y) { if (x) *x = cursor_x; if (y) *y = cursor_y; }
+void set_cursor(int x, int y) { if (x>=0 && x<VGA_WIDTH) cursor_x = x; if (y>=0 && y<VGA_HEIGHT) cursor_y = y; }
+
 void print_separator(char ch, unsigned char a) {
     for (int i = 0; i < VGA_WIDTH; ++i) putchar(ch, a);
     newline(a);
@@ -124,6 +128,31 @@ uint32_t kernel_checksum(void) {
     uint8_t* p = (uint8_t*)&_start; uint8_t* e = (uint8_t*)&_end; uint32_t sum=0; while (p<e) sum += *p++; return sum;
 }
 
+// =================== FORMATEO Y ANALISIS ===================
+void print_hex_bytes(const uint8_t* p, int n, unsigned char attr_hex, unsigned char attr_sep) {
+    const char* hex = "0123456789ABCDEF";
+    for (int i=0; i<n; ++i) {
+        uint8_t b = p[i];
+        char buf[3]; buf[0] = hex[(b>>4)&0xF]; buf[1] = hex[b & 0xF]; buf[2] = 0;
+        print_string(buf, attr_hex);
+        if (i+1<n) { putchar(' ', attr_sep); }
+    }
+}
+
+bool mod0_parse(const volatile unsigned char* m, uint16_t* out_version, uint16_t* out_length, uint32_t* out_entry_off) {
+    // Aceptar cabeceras con magic "MOD0" (legacy) o "MBIN" (nuevo estándar)
+    bool legacy = (m[0]=='M' && m[1]=='O' && m[2]=='D' && m[3]=='0');
+    bool mbin   = (m[0]=='M' && m[1]=='B' && m[2]=='I' && m[3]=='N');
+    if (!(legacy || mbin)) return false;
+    uint16_t ver = (uint16_t)m[4] | ((uint16_t)m[5] << 8);
+    uint16_t len = (uint16_t)m[6] | ((uint16_t)m[7] << 8);
+    uint32_t ent = ((uint32_t)m[8]) | ((uint32_t)m[9] << 8) | ((uint32_t)m[10] << 16) | ((uint32_t)m[11] << 24);
+    if (out_version) *out_version = ver;
+    if (out_length) *out_length = len;
+    if (out_entry_off) *out_entry_off = ent;
+    return true;
+}
+
 // =================== MÓDULO OPCIONAL ===================
 bool detect_optional_module(void) {
     volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
@@ -166,50 +195,148 @@ void countdown(int seconds) {
 // =================== PROGRESS BAR ===================
 void progress_bar_ms(int total_ms, const char* label) {
     clear_screen();
-    uint8_t a = vga_attr(THEME_BG, THEME_PRIMARY);
-    print_separator('=', a);
-    print_centered(label ? label : "Cargando...", a);
-    print_separator('-', vga_attr(THEME_BG, THEME_MUTED));
-    int width = VGA_WIDTH - 10; if (width < 10) width = 10;
-    int steps = width;
-    for (int i = 0; i <= steps; ++i) {
-        // Dibuja barra
-        int ox = 5, oy = cursor_y; // usar la línea actual
-        // Posicionar
-        for (int j = 0; j < steps; ++j) putchar(j <= i ? '#' : ' ', vga_attr(THEME_BG, (j <= i) ? THEME_OK : THEME_MUTED));
-        newline(vga_attr(THEME_BG, THEME_MUTED));
-        // Pequeño retraso (aprox)
-        for (volatile uint32_t d=0; d < (uint32_t)(total_ms*700); ++d) __asm__ volatile("nop");
-        // Subir una línea para sobrescribir en la siguiente iteración
-        if (cursor_y>0) cursor_y--; cursor_x = 0;
+    uint8_t hdr = vga_attr(THEME_BG, THEME_PRIMARY);
+    uint8_t muted = vga_attr(THEME_BG, THEME_MUTED);
+    uint8_t ok = vga_attr(THEME_BG, THEME_OK);
+    print_separator('=', hdr);
+    print_centered(label ? label : "Cargando...", hdr);
+    print_separator('-', muted);
+    int width = VGA_WIDTH - 10; if (width < 12) width = 12;
+    int inner = width - 2;
+    // Dibujar contorno
+    putchar('[', muted);
+    int sx = cursor_x, sy = cursor_y;
+    for (int i=0;i<inner;i++) putchar(' ', muted);
+    putchar(']', muted);
+    int delay = total_ms / (inner ? inner : 1);
+    for (int i=0;i<inner;i++) {
+        cursor_x = sx + i; cursor_y = sy;
+        putchar('=', ok);
+        for (volatile uint32_t d=0; d < (uint32_t)(delay * 1200); ++d) __asm__ volatile("nop");
     }
-    newline(a);
+    newline(muted);
+    print_separator('=', hdr);
 }
 
 // Barra inline: dibuja y actualiza una barra pequeña en la misma línea actual
 void progress_bar_inline_ms(int total_ms, int width) {
-    if (width <= 4) width = 8;
-    int steps = width - 2; // dejar bordes
-    // Dibujar contorno vacío
+    if (width < 10) width = 10;
+    int fill = width - 2; // parte interna
     putchar('[', vga_attr(THEME_BG, THEME_MUTED));
-    int bar_start_x = cursor_x;
-    int bar_y = cursor_y;
-    for (int i = 0; i < steps; ++i) putchar(' ', vga_attr(THEME_BG, THEME_MUTED));
+    int sx = cursor_x; int sy = cursor_y;
+    for (int i=0;i<fill;i++) putchar(' ', vga_attr(THEME_BG, THEME_MUTED));
     putchar(']', vga_attr(THEME_BG, THEME_MUTED));
-    // Tiempo por paso
-    int delay = total_ms / (steps > 0 ? steps : 1);
-    // Llenar la barra progresivamente
-    for (int s = 0; s < steps; ++s) {
-        cursor_x = bar_start_x + s;
-        cursor_y = bar_y;
-        putchar('#', vga_attr(THEME_BG, THEME_OK));
-        // Delay para que sea visible
-        for (volatile uint32_t d = 0; d < (uint32_t)(delay * 1200); ++d) {
-            __asm__ volatile("nop");
+    int delay = total_ms / (fill ? fill : 1);
+    for (int i=0;i<fill;i++) {
+        cursor_x = sx + i; cursor_y = sy;
+        putchar('=', vga_attr(THEME_BG, THEME_OK));
+        // aumentar factor de retardo para que sea visible en QEMU/hosts rápidos
+        for (volatile uint32_t d=0; d < (uint32_t)(delay * 15000); ++d) __asm__ volatile("nop");
+    }
+    cursor_x = sx + fill + 1; cursor_y = sy; // dejar cursor tras barra
+}
+
+// Barra en dos fases: dibujar contorno y devolver coordenadas internas
+void progress_bar_inline_draw(int width, int* out_x, int* out_y, int* out_fill) {
+    if (width < 10) width = 10;
+    int fill = width - 2;
+    putchar('[', vga_attr(THEME_BG, THEME_MUTED));
+    int sx = cursor_x; int sy = cursor_y;
+    for (int i=0;i<fill;i++) putchar(' ', vga_attr(THEME_BG, THEME_MUTED));
+    putchar(']', vga_attr(THEME_BG, THEME_MUTED));
+    if (out_x) *out_x = sx; if (out_y) *out_y = sy; if (out_fill) *out_fill = fill;
+}
+
+void progress_bar_inline_animate(int total_ms, int sx, int sy, int fill) {
+    if (fill <= 0) return;
+    int delay = total_ms / fill;
+    for (int i=0;i<fill;i++) {
+        cursor_x = sx + i; cursor_y = sy;
+        putchar('=', vga_attr(THEME_BG, THEME_OK));
+        for (volatile uint32_t d=0; d < (uint32_t)(delay * 15000); ++d) __asm__ volatile("nop");
+    }
+    cursor_x = sx + fill + 1; cursor_y = sy;
+}
+
+
+// Leer scancode bloqueando hasta que haya dato
+static inline uint8_t read_scancode_block(void) {
+    for (;;) {
+        if (inb(0x64) & 0x01) break;
+        for (volatile uint32_t d=0; d<20000; ++d) __asm__ volatile("nop");
+    }
+    return (uint8_t)inb(0x60);
+}
+
+// Vacía scancodes pendientes (manejando prefijo 0xE0)
+void kbd_flush(void) {
+    for (int i=0; i<64; ++i) {
+        if (!(inb(0x64) & 0x01)) break;
+        uint8_t sc = (uint8_t)inb(0x60);
+        if (sc == 0xE0) {
+            for (volatile uint32_t d=0; d<8000; ++d) __asm__ volatile("nop");
+            if (inb(0x64) & 0x01) (void)inb(0x60);
+        }
+        for (volatile uint32_t d=0; d<8000; ++d) __asm__ volatile("nop");
+    }
+}
+
+// Espera a una PULSACIÓN válida (solo make codes) pero exige RELEASE si la tecla ya estaba mantenida
+bool wait_for_keypress(void) {
+    kbd_flush();
+
+    // Detectar si hay una tecla actualmente "mantenida" (makes repetidos) en una ventana corta
+    bool held = false;
+    for (int i=0;i<20;i++) {
+        if (inb(0x64) & 0x01) {
+            uint8_t s = (uint8_t)inb(0x60);
+            if (s == 0xE0) { if (inb(0x64) & 0x01) (void)inb(0x60); }
+            if ((s & 0x80) == 0) { held = true; break; } // detectado make -> tecla sostenida
+        }
+        for (volatile uint32_t d=0; d<12000; ++d) __asm__ volatile("nop");
+    }
+
+    if (held) {
+        // esperar el break (release) de cualquier tecla antes de aceptar nueva pulsación
+        for (;;) {
+            uint8_t sc = read_scancode_block();
+            if (sc == 0xE0) {
+                uint8_t sc2 = read_scancode_block();
+                if (sc2 & 0x80) break; // break extendido
+                else continue; // ignore extra make
+            } else {
+                if (sc & 0x80) break; // break normal
+                else continue; // ignore make repeats
+            }
+        }
+        // al salir del bucle hemos visto una release; ahora seguimos a esperar la siguiente make
+    }
+
+    // Esperar el make code (nueva pulsación)
+    for (;;) {
+        uint8_t sc = read_scancode_block();
+        if (sc == 0xE0) {
+            uint8_t sc2 = read_scancode_block();
+            if ((sc2 & 0x80) == 0) return true; // make extendido
+            else continue;
+        } else {
+            if ((sc & 0x80) == 0) return true; // make normal
+            else continue;
         }
     }
-    cursor_x = bar_start_x + steps + 1;
-    cursor_y = bar_y;
+}
+
+// Vacía cualquier scancode pendiente antes de una espera activa
+
+
+// Timeout genérico reutilizado por kernel.c (si no existe tecla simplemente expira)
+bool wait_key_or_timeout_ms(int timeout_ms) {
+    int slices = timeout_ms / 10; if (slices <= 0) slices = 1;
+    for (int i=0; i<slices; ++i) {
+        if (inb(0x64) & 0x01) { (void)inb(0x60); return true; }
+        for (volatile uint32_t d=0; d<30000; ++d) __asm__ volatile("nop");
+    }
+    return false;
 }
 
 // =================== ATA PIO (28-bit LBA, 1 sector) ===================
@@ -237,21 +364,21 @@ int ata_read28(uint32_t lba, void* dst) {
 
 bool load_kernel_post(void) {
     // LBA del kernel en la imagen: 3 (después de stage1 y stage2)
-    uint32_t kstart = (uint32_t)&_start, kend = (uint32_t)&_end;
-    uint32_t ksize = kend - kstart;
-    uint32_t ksects = (ksize + 511) / 512;
+    // IMPORTANTE: usar el recuento real de sectores cargados por stage2 (excluye .bss),
+    // ya que &_end - &_start incluye .bss y puede desincronizarse con el tamaño en disco.
+    volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
+    uint32_t ksects = status[1]; // KERNEL_SECTS establecido por stage2.asm
     uint32_t module_lba = 3 + ksects;
     if (ata_read28(module_lba, (void*)MODULE_LOAD_ADDRESS) == 0) {
-        // Validar magic 'MOD0' en la carga
+        // Validar magic aceptado
         volatile char* m = (volatile char*)MODULE_LOAD_ADDRESS;
-        if (m[0]=='M' && m[1]=='O' && m[2]=='D' && m[3]=='0') {
-            volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
+        bool ok = ((m[0]=='M' && m[1]=='O' && m[2]=='D' && m[3]=='0') || (m[0]=='M' && m[1]=='B' && m[2]=='I' && m[3]=='N'));
+        if (ok) {
             status[2] = 1; // MODULE_OK
             status[3] = 1; // MODULE_SECTS
             return true;
         } else {
             // No hay módulo válido
-            volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
             status[2] = 0; status[3] = 0;
             return false;
         }
@@ -263,20 +390,45 @@ bool load_kernel_post(void) {
 static uint8_t g_module_buf[512];
 
 bool module_probe(void) {
-    // Calcular LBA del módulo igual que load_kernel_post, pero sin efectos secundarios
-    uint32_t kstart = (uint32_t)&_start, kend = (uint32_t)&_end;
-    uint32_t ksize = kend - kstart;
-    uint32_t ksects = (ksize + 511) / 512;
+    // Calcular LBA del módulo igual que load_kernel_post, pero sin efectos secundarios.
+    // Usar KERNEL_SECTS reportado por stage2 para evitar incluir .bss en el cómputo.
+    volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
+    uint32_t ksects = status[1];
     uint32_t module_lba = 3 + ksects;
     if (ata_read28(module_lba, (void*)g_module_buf) != 0) return false;
-    return (g_module_buf[0]=='M' && g_module_buf[1]=='O' && g_module_buf[2]=='D' && g_module_buf[3]=='0');
+    bool legacy = (g_module_buf[0]=='M' && g_module_buf[1]=='O' && g_module_buf[2]=='D' && g_module_buf[3]=='0');
+    bool mbin   = (g_module_buf[0]=='M' && g_module_buf[1]=='B' && g_module_buf[2]=='I' && g_module_buf[3]=='N');
+    return legacy || mbin;
 }
 
 bool module_finalize_after_bar(void) {
-    // Copiar buffer sondeado a la dirección final y marcar flags
+    // Copiar buffer sondeado a la dirección final y, si el header indica más tamaño,
+    // leer sectores adicionales desde disco.
     uint8_t* dst = (uint8_t*)MODULE_LOAD_ADDRESS;
     for (int i = 0; i < 512; ++i) dst[i] = g_module_buf[i];
+
+    // Parsear cabecera para conocer longitud total
+    uint16_t ver=0, length_field=0; uint32_t entry_off=0;
+    bool header_ok = mod0_parse((const volatile unsigned char*)dst, &ver, &length_field, &entry_off);
+    // Longitud mínima segura: al menos 512 si no hay header válido
+    uint32_t total_len = header_ok ? (uint32_t)length_field : 512u;
+    if (total_len < 512u) total_len = 512u; // redondeo defensivo
+    uint32_t sectors_needed = (total_len + 511u) / 512u;
+
+    // Calcular LBA base del módulo
     volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
-    status[2] = 1; status[3] = 1; // OK, 1 sector
-    return true;
+    uint32_t ksects = status[1];
+    uint32_t module_lba = 3 + ksects;
+
+    // Leer los sectores restantes (ya tenemos el primero)
+    uint32_t loaded = 1;
+    for (uint32_t s = 1; s < sectors_needed; ++s) {
+        if (ata_read28(module_lba + s, (void*)(MODULE_LOAD_ADDRESS + s*512)) != 0) {
+            break; // parar ante fallo de E/S
+        }
+        loaded++;
+    }
+    status[2] = (loaded==sectors_needed) ? 1 : 1; // marcar como presente aunque incompleto
+    status[3] = (uint8_t)loaded;
+    return loaded >= 1;
 }

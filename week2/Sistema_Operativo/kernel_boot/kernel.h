@@ -76,6 +76,18 @@ uint32_t kernel_checksum(void);
 void countdown(int seconds);
 void progress_bar_ms(int total_ms, const char* label);
 void progress_bar_inline_ms(int total_ms, int width);
+// Nueva API para barra en dos fases
+void progress_bar_inline_draw(int width, int* out_x, int* out_y, int* out_fill);
+void progress_bar_inline_animate(int total_ms, int x, int y, int fill);
+// Acceso cursor para control preciso
+void get_cursor(int* x, int* y);
+void set_cursor(int x, int y);
+// Espera a que se pulse cualquier tecla o a timeout (ms). Devuelve true si hubo tecla.
+bool wait_key_or_timeout_ms(int timeout_ms);
+// Espera bloqueante hasta pulsar alguna tecla (8042)
+bool wait_for_keypress(void);
+// Vaciar el buffer del controlador de teclado 8042
+void kbd_flush(void);
 bool detect_optional_module(void);
 void show_module_status(void);
 bool load_kernel_post(void); // Carga 1 sector de módulo post y actualiza flags
@@ -85,6 +97,12 @@ bool module_finalize_after_bar(void);
 
 // ATA PIO mínimo (28-bit LBA, 1 sector)
 int ata_read28(uint32_t lba, void* dst);
+
+// =================== UTILIDADES DE FORMATO/ANALISIS ===================
+// Imprime n bytes en hexadecimal (dos dígitos) separados por espacio
+void print_hex_bytes(const uint8_t* p, int n, unsigned char attr_hex, unsigned char attr_sep);
+// Parsea cabecera MOD0 en memoria. Devuelve true si magic es "MOD0" y rellena campos.
+bool mod0_parse(const volatile unsigned char* m, uint16_t* out_version, uint16_t* out_length, uint32_t* out_entry_off);
 
 // =================== COMPROBACIONES HW ===================
 bool check_protected_mode(void);
