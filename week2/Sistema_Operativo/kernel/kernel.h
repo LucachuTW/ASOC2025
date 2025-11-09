@@ -5,6 +5,7 @@
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
 typedef unsigned int uint32_t;
+typedef unsigned int uintptr_t;
 
 #if __STDC_VERSION__ < 202000L
     #define bool _Bool
@@ -49,6 +50,7 @@ void print_string_at(const char* str, unsigned char color, int x, int y);
 void print_colored_line(const char* str, unsigned char bg, unsigned char fg);
 void print_hex(uint32_t value);
 void print_dec(uint32_t value);
+uint32_t get_kernel_size(void);
 void print_line(unsigned char color);
 
 #endif

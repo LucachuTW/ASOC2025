@@ -5,6 +5,10 @@ static volatile uint16_t* vga_buffer = (volatile uint16_t*)VGA_ADDRESS;
 static int cursor_x = 0;
 static int cursor_y = 0;
 
+// Símbolos definidos por el linker
+extern uint32_t _start;
+extern uint32_t _end;
+
 // =================== FUNCIONES AUXILIARES ===================
 static inline uint16_t vga_entry(char c, uint8_t color) {
     return (uint16_t)c | (uint16_t)color << 8;
@@ -110,41 +114,104 @@ void print_dec(uint32_t value) {
     }
 }
 
+uint32_t get_kernel_size(void) {
+    return (uint32_t)((unsigned int)&_end - (unsigned int)&_start);
+}
+
 // =================== FUNCIÓN PRINCIPAL ===================
 void kmain(void) {
     clear_screen();
     
-    // Banner del sistema
-    print_string_at("╔═══════════════════════════════════════════════════════════════╗", COLOR_LIGHT_CYAN, 0, 0);
-    print_string_at("║                     VIRUS PAYAL OS v1.0                      ║", COLOR_LIGHT_CYAN, 0, 1);
-    print_string_at("╚═══════════════════════════════════════════════════════════════╝", COLOR_LIGHT_CYAN, 0, 2);
+    // Banner principal con colores
+    print_colored_line("================================================================================", COLOR_CYAN, COLOR_BLACK);
+    print_colored_line("                         SISTEMA OPERATIVO BASICO                               ", COLOR_CYAN, COLOR_WHITE);
+    print_colored_line("                              Bootloader x86                                    ", COLOR_CYAN, COLOR_WHITE);
+    print_colored_line("================================================================================", COLOR_CYAN, COLOR_BLACK);
+    print_line(COLOR_WHITE);
     
-    cursor_y = 4;
+    // Información del kernel
+    print_string("[", COLOR_GREEN);
+    print_string("OK", COLOR_GREEN);
+    print_string("] ", COLOR_GREEN);
+    print_string("Kernel iniciado correctamente\n", COLOR_WHITE);
     
-    print_string("✓ Sistema iniciado correctamente\n", COLOR_LIGHT_GREEN);
-    print_string("✓ Modo protegido activado\n", COLOR_LIGHT_GREEN);
-    print_string("✓ Subsistema VGA inicializado\n", COLOR_LIGHT_GREEN);
+    print_string("[", COLOR_GREEN);
+    print_string("OK", COLOR_GREEN);
+    print_string("] ", COLOR_GREEN);
+    print_string("Modo protegido activado (32-bit)\n", COLOR_WHITE);
+    
+    print_string("[", COLOR_GREEN);
+    print_string("OK", COLOR_GREEN);
+    print_string("] ", COLOR_GREEN);
+    print_string("GDT cargada y configurada\n", COLOR_WHITE);
     
     print_line(COLOR_WHITE);
     
-    print_string("Memoria kernel: ", COLOR_LIGHT_GRAY);
-    print_hex(0x8000);
-    print_string(" - ", COLOR_WHITE);
-    print_hex(0x9000);
+    // Información de memoria
+    print_colored_line("--- MAPA DE MEMORIA ---", COLOR_YELLOW, COLOR_BLACK);
+    
+    print_string("  Stage1 (bootloader): ", COLOR_LIGHT_GRAY);
+    print_hex(0x00007C00);
+    print_string(" - ", COLOR_LIGHT_GRAY);
+    print_hex(0x00007DFF);
+    print_string(" (512 bytes)\n", COLOR_LIGHT_GRAY);
+    
+    print_string("  Stage2 (loader):     ", COLOR_LIGHT_GRAY);
+    print_hex(0x00007E00);
+    print_string(" - ", COLOR_LIGHT_GRAY);
+    print_hex(0x00007FFF);
+    print_string(" (1024 bytes)\n", COLOR_LIGHT_GRAY);
+    
+    print_string("  Kernel:              ", COLOR_LIGHT_GRAY);
+    print_hex(0x00010000);
+    print_string(" - ", COLOR_LIGHT_GRAY);
+    print_hex((uint32_t)&_end);
+    print_string(" (", COLOR_LIGHT_GRAY);
+    print_dec(get_kernel_size());
+    print_string(" bytes)\n", COLOR_LIGHT_GRAY);
+    
+    print_string("  Stack:               ", COLOR_LIGHT_GRAY);
+    print_hex(0x00090000);
+    print_string(" (crece hacia abajo)\n", COLOR_LIGHT_GRAY);
+    
+    print_string("  VGA Buffer:          ", COLOR_LIGHT_GRAY);
+    print_hex(0x000B8000);
+    print_string(" (80x25 texto)\n", COLOR_LIGHT_GRAY);
+    
     print_line(COLOR_WHITE);
     
-    print_string("Tamaño pantalla: ", COLOR_LIGHT_GRAY);
-    print_dec(VGA_WIDTH);
-    print_string("x", COLOR_WHITE);
-    print_dec(VGA_HEIGHT);
-    print_string(" caracteres\n", COLOR_WHITE);
+    // Información del sistema
+    print_colored_line("--- INFORMACION DEL SISTEMA ---", COLOR_YELLOW, COLOR_BLACK);
+    
+    print_string("  Arquitectura:        ", COLOR_LIGHT_GRAY);
+    print_string("x86 (i386)\n", COLOR_WHITE);
+    
+    print_string("  Modo CPU:            ", COLOR_LIGHT_GRAY);
+    print_string("Protected Mode (32-bit)\n", COLOR_WHITE);
+    
+    print_string("  Tamano kernel:       ", COLOR_LIGHT_GRAY);
+    print_dec(get_kernel_size());
+    print_string(" bytes (", COLOR_WHITE);
+    print_dec((get_kernel_size() + 511) / 512);
+    print_string(" sectores)\n", COLOR_WHITE);
+    
+    print_string("  Direccion inicio:    ", COLOR_LIGHT_GRAY);
+    print_hex(0x10000);
+    print_string("\n", COLOR_WHITE);
+    
+    print_string("  Direccion fin:       ", COLOR_LIGHT_GRAY);
+    print_hex((uint32_t)&_end);
+    print_string("\n", COLOR_WHITE);
     
     print_line(COLOR_WHITE);
     
-    print_string("> ", COLOR_YELLOW);
+    // Mensaje final
+    print_colored_line("================================================================================", COLOR_CYAN, COLOR_BLACK);
+    print_string("  Sistema listo.  Virus Payal.\n", COLOR_LIGHT_CYAN);
+    print_colored_line("================================================================================", COLOR_CYAN, COLOR_BLACK);
     
-    // Bucle principal del kernel
-    while (1) {
+    // Bucle infinito con halt
+    while(1) {
         __asm__ volatile("hlt");
     }
 }

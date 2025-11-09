@@ -1,0 +1,174 @@
+CC = x86_64-elf-gcc
+LD = x86_64-elf-ld
+OBJCOPY = x86_64-elf-objcopy
+ASM = nasm
+
+CFLAGS = -m32 -ffreestanding -fno-pic -nostdlib -O0 -g -Ikernel
+LDFLAGS = -m elf_i386 -T linker.ld -nostdlib
+ASMFLAGS = -f bin
+
+.PHONY: all clean run test-stage1 test-stage2 info
+
+all: os-image.bin
+
+
+# Kernel
+start.o: kernel/start.S
+	$(CC) -m32 -g -c kernel/start.S -o start.o
+
+kernel.o: kernel/kernel.c kernel/kernel.h
+	$(CC) $(CFLAGS) -c kernel/kernel.c -o kernel.o
+
+kernel.elf: start.o kernel.o linker.ld
+	$(LD) $(LDFLAGS) -o kernel.elf start.o kernel.o
+
+kernel.bin: kernel.elf
+	$(OBJCOPY) -O binary kernel.elf kernel.bin
+
+# Imagen final: stage1 (512) + stage2 (1024) + kernel (variable)
+os-image.bin: stage1.bin stage2.bin kernel.bin
+	cat stage1.bin stage2.bin kernel.bin > os-image.bin
+	truncate -s 1440k os-image.bin
+	@echo "=== Layout del disco ==="
+	@echo "Sector 0:     Stage1 (512 bytes)"
+	@echo "Sectores 1-2: Stage2 (1024 bytes)"
+	@echo "Sector 3+:    Kernel ($$(stat -f%z kernel.bin 2>/dev/null || stat -c%s kernel.bin) bytes)"
+
+run: os-image.bin
+	qemu-system-i386 -drive format=raw,file=os-image.bin
+
+test-stage1: stage1.bin
+	cp stage1.bin test-stage1.bin
+	truncate -s 1440k test-stage1.bin
+	qemu-system-i386 -drive format=raw,file=test-stage1.bin
+
+test-stage2: stage1.bin stage2.bin
+	cat stage1.bin stage2.bin > test-stage2.bin
+	truncate -s 1440k test-stage2.bin
+	qemu-system-i386 -drive format=raw,file=test-stage2.bin
+
+info:
+	@echo "=== Estado de los archivos ==="
+	@ls -lh stage1.bin stage2.bin kernel.bin os-image.bin 2>/dev/null || echo "Faltan archivos"
+	@echo ""
+	@echo "=== Contenido de kernel_sects.inc ==="
+	@cat kernel_sects.inc 2>/dev/null || echo "No generado aún"
+	@echo ""
+	@echo "=== Primeros bytes del disco ==="
+	@hexdump -C os-image.bin | head -n 20
+
+clean:
+	rm -f *.bin *.o *.elf kernel_sects.inc
+
+.PHONY: all clean run test-stage1 test-stage2 info
+
+
+# Stage 1: Bootloader principal (sector 0)
+stage1.bin: boot/stage1.asm
+	$(ASM) $(ASMFLAGS) boot/stage1.asm -o stage1.bin
+	@test $$(stat -f%z stage1.bin 2>/dev/null || stat -c%s stage1.bin) -eq 512 || \
+		(echo "ERROR: stage1.bin debe ser exactamente 512 bytes" && false)
+
+# Stage 2: Cargador del kernel (sectores 1-2)
+stage2.bin: boot/stage2.asm kernel_sects.inc
+	$(ASM) $(ASMFLAGS) boot/stage2.asm -o stage2.bin
+	@test $$(stat -f%z stage2.bin 2>/dev/null || stat -c%s stage2.bin) -eq 1024 || \
+		(echo "ERROR: stage2.bin debe ser exactamente 1024 bytes" && false)
+
+# Compilar kernel C
+kernel.o: kernel/kernel.c kernel/kernel.h
+	$(CC) $(CFLAGS) -c kernel/kernel.c -o kernel.o
+
+# Compilar kernel assembly
+start.o: kernel/start.S
+	$(CC) $(CFLAGS) -c kernel/start.S -o start.o
+
+# Enlazar kernel
+kernel.elf: $(OBJS)
+	$(LD) $(LDFLAGS) -o kernel.elf $(OBJS)
+
+# Extraer solo las secciones necesarias del kernel
+kernel.bin: kernel.elf
+	$(OBJCOPY) -O binary --only-section=.text --only-section=.rodata --only-section=.data kernel.elf kernel.bin
+	@size=$$(stat -f%z kernel.bin); \
+	sectors=$$((($$size + 511) / 512)); \
+	echo "Kernel: $$size bytes, $$sectors sectores"
+
+# Compilar stage1 bootloader (512 bytes)
+stage1.bin: boot/stage1.asm
+	$(ASM) $(ASMFLAGS) boot/stage1.asm -o stage1.bin
+
+# Generar kernel_sects.inc ANTES de compilar stage2
+kernel_sects.inc: kernel.bin
+	@size=$$(stat -f%z kernel.bin 2>/dev/null || stat -c%s kernel.bin); \
+	sectors=$$((($$size + 511) / 512)); \
+	echo "; Generado automáticamente" > kernel_sects.inc; \
+	echo "KS_COUNT equ $$sectors" >> kernel_sects.inc; \
+	echo "Kernel: $$size bytes, $$sectors sectores"
+
+# Compilar stage2 bootloader (hasta 1KB)
+stage2.bin: boot/stage2.asm kernel_sects.inc
+	$(ASM) $(ASMFLAGS) boot/stage2.asm -o stage2.bin
+
+# Crear imagen de disco - MÉTODO VERIFICADO
+os-image.bin: stage1.bin stage2.bin kernel.bin
+	@echo "=== Creando imagen de disco funcional ==="
+	@# Verificar tamaños
+	@echo "Stage1: $$(stat -f%z stage1.bin) bytes"
+	@echo "Stage2: $$(stat -f%z stage2.bin) bytes"  
+	@echo "Kernel: $$(stat -f%z kernel.bin) bytes"
+	@# Crear imagen con dd para asegurar correcto
+	dd if=stage1.bin of=os-image.bin bs=512 count=1 conv=notrunc
+	dd if=stage2.bin of=os-image.bin bs=512 seek=1 conv=notrunc
+	dd if=kernel.bin of=os-image.bin bs=512 seek=3 conv=notrunc   # kernel empieza en sector 3 físico (LBA 3) -> CHS sector 4
+	truncate -s 1440k os-image.bin
+	@echo "Imagen os-image.bin creada correctamente"
+	@echo "Estructura del disco:"
+	@echo "  Sector 0: Stage1 bootloader (512 bytes)"
+	@echo "  Sector 1-2: Stage2 bootloader (1024 bytes)"
+	@echo "  Sector 3+: Kernel ($$(stat -f%z kernel.bin) bytes)"
+
+# Limpiar
+clean:
+	rm -f *.bin *.o *.elf *.inc kernel_sects.inc
+
+# Ejecutar en QEMU con verificación
+run: os-image.bin
+	@echo "=== Iniciando QEMU ==="
+	qemu-system-i386 -drive format=raw,file=os-image.bin,if=floppy -nographic
+
+# Ejecutar con salida visible para depuración
+run-debug: os-image.bin
+	@echo "=== Iniciando QEMU con depuración ==="
+	qemu-system-i386 -drive format=raw,file=os-image.bin,if=floppy
+
+# Probar etapa por etapa
+test-stage1: stage1.bin
+	@echo "Probando Stage1..."
+	dd if=stage1.bin of=test-stage1.bin bs=512 count=1 conv=notrunc
+	truncate -s 1440k test-stage1.bin
+	qemu-system-i386 -drive format=raw,file=test-stage1.bin,if=floppy -nographic
+
+test-stage2: stage1.bin stage2.bin
+	@echo "Probando Stage1+Stage2..."
+	dd if=stage1.bin of=test-stage2.bin bs=512 count=1 conv=notrunc
+	dd if=stage2.bin of=test-stage2.bin bs=512 seek=1 conv=notrunc
+	truncate -s 1440k test-stage2.bin
+	qemu-system-i386 -drive format=raw,file=test-stage2.bin,if=floppy -nographic
+
+# Mostrar información
+info:
+	@echo "=== Sistema Operativo con Two-Stage Bootloader ==="
+	@echo "Stage1: boot/stage1.asm - Carga stage2"
+	@echo "Stage2: boot/stage2.asm - Transición a modo protegido"
+	@echo "Kernel: kernel.c/kernel.S - Código del SO"
+	@echo ""
+	@echo "Comandos:"
+	@echo "  make          - Compilar todo"
+	@echo "  make run      - Ejecutar (verificar que funcione)"
+	@echo "  make run-debug- Ejecutar con salida visible"
+	@echo "  make test-stage1 - Probar solo stage1"
+	@echo "  make test-stage2 - Probar stage1+stage2"
+	@echo "  make clean    - Limpiar archivos"
+
+.PHONY: all clean run run-debug test-stage1 test-stage2 info
