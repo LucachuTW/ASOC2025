@@ -1,76 +1,66 @@
 #include "kernel.h"
 
-static uint16_t* vga = (uint16_t*)VGA_ADDRESS;
+// =================== VARIABLES PRIVADAS ===================
+static volatile unsigned short* video_memory = (volatile unsigned short*)VGA_ADDRESS;
 static int cursor_x = 0;
 static int cursor_y = 0;
 
+// =================== FUNCIONES ===================
+
 void clear_screen(void) {
-	for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++) {
-		vga[i] = (COLOR_BLACK << 8) | ' ';
-	}
-	cursor_x = 0;
-	cursor_y = 0;
+    volatile unsigned short* vga = (volatile unsigned short*)0xB8000;
+    unsigned short blank = 0x0F20;  // 0x0F = blanco sobre negro, 0x20 = espacio
+    
+    for (int i = 0; i < 2000; i++) {  // 80*25 = 2000
+        vga[i] = blank;
+    }
+    
+    cursor_x = 0;
+    cursor_y = 0;
 }
 
-void putchar(char c, uint8_t color) {
-	if (c == '\n') {
-		cursor_x = 0;
-		cursor_y++;
-	} else {
-		int offset = cursor_y * VGA_WIDTH + cursor_x;
-		vga[offset] = (color << 8) | c;
-		cursor_x++;
-		if (cursor_x >= VGA_WIDTH) {
-			cursor_x = 0;
-			cursor_y++;
-		}
-	}
-	
-	// Scroll simple
-	if (cursor_y >= VGA_HEIGHT) {
-		cursor_y = VGA_HEIGHT - 1;
-		// Mover líneas hacia arriba
-		for (int i = 0; i < (VGA_HEIGHT - 1) * VGA_WIDTH; i++) {
-			vga[i] = vga[i + VGA_WIDTH];
-		}
-		// Limpiar última línea
-		for (int i = 0; i < VGA_WIDTH; i++) {
-			vga[(VGA_HEIGHT - 1) * VGA_WIDTH + i] = (COLOR_BLACK << 8) | ' ';
-		}
-	}
+void putchar_direct(char c, unsigned char color, int x, int y) {
+    volatile unsigned short* vga = (volatile unsigned short*)0xB8000;
+    int offset = y * 80 + x;
+    vga[offset] = (unsigned short)c | ((unsigned short)color << 8);
 }
 
-void print_string(const char* str, uint8_t color) {
-	while (*str) {
-		putchar(*str++, color);
-	}
-}
-
-void print_hex(uint32_t value) {
-	char hex[] = "0x00000000";
-	for (int i = 9; i >= 2; i--) {
-		uint8_t nibble = value & 0xF;
-		hex[i] = nibble < 10 ? '0' + nibble : 'A' + (nibble - 10);
-		value >>= 4;
-	}
-	print_string(hex, COLOR_WHITE);
+void print_string_simple(const char* str, unsigned char color) {
+    int i = 0;
+    while (str[i] != '\0') {
+        if (str[i] == '\n') {
+            cursor_x = 0;
+            cursor_y++;
+        } else {
+            putchar_direct(str[i], color, cursor_x, cursor_y);
+            cursor_x++;
+            if (cursor_x >= 80) {
+                cursor_x = 0;
+                cursor_y++;
+            }
+        }
+        
+        if (cursor_y >= 25) {
+            cursor_y = 0;
+        }
+        
+        i++;
+    }
 }
 
 void kmain(void) {
-	clear_screen();
-	
-	print_string("[ Virus Payal OS ]\n", COLOR_GREEN);
-	print_string("================\n\n", COLOR_WHITE);
-	
-	print_string("Kernel cargado en: ", COLOR_WHITE);
-	print_hex(0x8000);
-	print_string("\n", COLOR_WHITE);
-	
-	print_string("Estado: ", COLOR_WHITE);
-	print_string("OK\n", COLOR_GREEN);
-	
-	print_string("\nSistema iniciado correctamente.\n", COLOR_WHITE);
-	
-	// Bucle infinito
-	for(;;);
+    // Test 1: Clear screen
+    clear_screen();
+    
+    // Test 2: Una línea simple
+    print_string_simple("Virus Payal OS v1.0\n", 0x0F);
+    
+    // Test 3: Más líneas
+    print_string_simple("Sistema iniciado OK\n", 0x0A);
+    print_string_simple("> ", 0x0B);
+    
+    // Bucle infinito
+    while(1) {
+        __asm__ volatile("hlt");
+    }
 }

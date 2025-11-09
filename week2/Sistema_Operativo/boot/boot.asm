@@ -72,7 +72,7 @@ delay:
 
 
 enable_a20:
-in al, 0x92             ; puerto de control
+in al, 0x64             ; nos hacemos pasar por teclado
 or al, 00000010b        ; set bit A20
 out 0x92, al
 ret
@@ -174,7 +174,7 @@ pm_start:
 msg db 'Virus Payal==> ',  0 
 BootDrive db 0
 
-KernelSects db 2             ; Depende del tamaño real (kernel.bin / 512 redondeado hacia arriba) 
+KernelSects db 5             ; Depende del tamaño real (kernel.bin / 512 redondeado hacia arriba) 
 ; Se comprueba su tamaño con stat -f%z kernel.bin , y sus sectores con echo $((($(stat -f%z kernel.bin)+511)/512))
 disk_msg db 'Error disco',0
 
