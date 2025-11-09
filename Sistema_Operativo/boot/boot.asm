@@ -70,8 +70,6 @@ delay:
     int 0x15
     ret
 
-progress_msg db 0x0D, 0x0A, '[', 0
-done_msg db '] OK', 0x0D, 0x0A, 0
 
 enable_a20:
 in al, 0x92             ; puerto de control
@@ -179,6 +177,11 @@ BootDrive db 0
 KernelSects db 2             ; Depende del tamaño real (kernel.bin / 512 redondeado hacia arriba) 
 ; Se comprueba su tamaño con stat -f%z kernel.bin , y sus sectores con echo $((($(stat -f%z kernel.bin)+511)/512))
 disk_msg db 'Error disco',0
+
+progress_msg db 0x0D, 0x0A, '[', 0
+done_msg db '] OK', 0x0D, 0x0A, 0
+
+
 
 times 510 - ($ - $$) db 0    ; 8) Relleno hasta byte 510
 dw 0xAA55                    ; 9) Firma 0xAA55 al final del sector
