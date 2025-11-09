@@ -24,11 +24,14 @@ stage1.bin: boot/stage1.asm
 start.o: kernel/start.S
 	$(CC) $(CFLAGS) -c kernel/start.S -o start.o
 
-kernel.o: kernel/kernel.c kernel/kernel.h
+kernel.o: kernel/kernel.c kernel/kernel.h kernel/kernelfunciones.c
 	$(CC) $(CFLAGS) -c kernel/kernel.c -o kernel.o
 
-kernel.elf: start.o kernel.o linker.ld
-	$(LD) $(LDFLAGS) -o kernel.elf start.o kernel.o
+kernelfunciones.o: kernel/kernelfunciones.c kernel/kernel.h
+	$(CC) $(CFLAGS) -c kernel/kernelfunciones.c -o kernelfunciones.o
+
+kernel.elf: start.o kernel.o kernelfunciones.o linker.ld
+	$(LD) $(LDFLAGS) -o kernel.elf start.o kernel.o kernelfunciones.o
 
 kernel.bin: kernel.elf
 	$(OBJCOPY) -O binary kernel.elf kernel.bin

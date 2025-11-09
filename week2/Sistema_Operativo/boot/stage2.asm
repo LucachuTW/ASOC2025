@@ -1,6 +1,17 @@
 [BITS 16]
 [ORG 0x7E00]
 
+; ===========================================
+; CAMPO DE ESTADO COMPARTIDO EN DIRECCIONES FIJAS
+; IMPORTANTE: No reservar datos antes del código para que la entrada en 0x7E00 sea código.
+; Usamos direcciones absolutas en 0x7E00..0x7E03 para que el kernel las lea.
+; ===========================================
+STATUS_BASE   equ 0x7E00
+DISK_OK       equ STATUS_BASE + 0
+KERNEL_SECTS  equ STATUS_BASE + 1
+MODULE_OK     equ STATUS_BASE + 2
+MODULE_SECTS  equ STATUS_BASE + 3
+
 %include "kernel_sects.inc"
 
 ; ===========================================
@@ -45,7 +56,7 @@ start:
     mov es, ax
     xor bx, bx
     
-    ; Configurar lectura desde disco
+    ; Configurar lectura desde disco (kernel principal)
     mov ah, 0x02            ; INT 13h función 02h = leer sectores
     mov al, KS_COUNT        ; Número de sectores (desde kernel_sects.inc)
     mov ch, 0               ; Cilindro 0
@@ -58,6 +69,10 @@ start:
     
     mov si, msg_ok
     call print
+
+    ; Marcar estado de lectura kernel
+    mov byte [DISK_OK], 1
+    mov byte [KERNEL_SECTS], KS_COUNT
     
     ; Mostrar primer byte del kernel cargado (debug)
     mov si, msg_first_byte
@@ -81,14 +96,46 @@ start:
     ; PASO 2: HABILITAR LÍNEA A20
     ; ===========================================
     call enable_a20
+
+    ; ===========================================
+    ; PASO EXTRA (AÚN EN MODO REAL): Cargar módulo opcional
+    ; Se coloca inmediatamente después del kernel en disco.
+    ; Dirección destino elegida: 0x12000 (segmento 0x1200)
+    ; ===========================================
+    mov si, msg_module_try
+    call print
+    mov ax, 0x1200      ; ES = 0x1200 -> 0x12000 físico
+    mov es, ax
+    xor bx, bx
+    mov ah, 0x02        ; Leer 1 sector
+    mov al, 1
+    mov ch, 0
+    mov cl, 4 + KS_COUNT ; Sector inmediatamente después del kernel
+    mov dh, 0
+    mov dl, [boot_drive]
+    int 0x13
+    jc .module_fail
+    cmp al, 1
+    jne .module_fail
+    ; Éxito
+    mov byte [MODULE_OK], 1
+    mov byte [MODULE_SECTS], 1
+    mov si, msg_module_ok
+    call print
+    jmp .module_done
+.module_fail:
+    mov si, msg_module_fail
+    call print
+.module_done:
     
     ; ===========================================
     ; PASO 3: CARGAR GDT Y CAMBIAR A MODO PROTEGIDO
+    ; (Todas las llamadas BIOS ya realizadas)
     ; ===========================================
     cli                     ; Deshabilitar interrupciones
     lgdt [gdt_descriptor]   ; Cargar tabla GDT
     
-    ; Activar bit PE (Protection Enable) en CR0
+    ; Activar bit PE (Protection Enable) en CR0 y saltar a 32-bit
     mov eax, cr0
     or eax, 0x1
     mov cr0, eax
@@ -163,6 +210,9 @@ msg_ok              db ' OK', 13, 10, 0
 msg_error           db ' ERROR!', 13, 10, 0
 msg_first_byte      db '[Stage2] Primer byte del kernel: 0x', 0
 msg_newline         db 13, 10, 0
+msg_module_try      db '[Stage2] Buscando modulo opcional...', 13, 10, 0
+msg_module_ok       db '[Stage2] Modulo cargado (1 sector)', 13, 10, 0
+msg_module_fail     db '[Stage2] Modulo no encontrado', 13, 10, 0
 
 ; ===========================================
 ; GDT (Global Descriptor Table)
