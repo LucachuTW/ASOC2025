@@ -65,7 +65,7 @@ ret
 
 delay:
     mov ah, 0x86
-    mov cx, 0x0002    ; 150,000 microsegundos
+    mov cx, 0x0001    ; 100,000 microsegundos
     mov dx, 0x93E0
     int 0x15
     ret
