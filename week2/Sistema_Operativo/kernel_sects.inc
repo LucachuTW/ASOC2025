@@ -1,2 +1,2 @@
 ; Auto-generado
-KS_COUNT equ 6
+KS_COUNT equ 10

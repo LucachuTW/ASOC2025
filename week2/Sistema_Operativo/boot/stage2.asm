@@ -102,9 +102,9 @@ start:
 
 ; Habilitar A20 usando método Fast A20
 enable_a20:
-    in al, 0x92
+    in al, 0x64
     or al, 2
-    out 0x92, al
+    out 0x64, al
     ret
 
 ; Imprimir string (SI apunta al string, terminado en 0)
