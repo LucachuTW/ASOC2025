@@ -17,9 +17,14 @@ void fmt_hex(uint32_t v, char* out);
 // Nuevos prototipos necesarios
 void u32_to_dec(uint32_t v, char* out);
 void print_label_hex(const char* label, uint32_t value, int y, uint8_t la, uint8_t va);
-void wait_for_keypress(void);
+// Bloqueante: esperar tecla válida (versión del módulo, renombrada para evitar colisiones)
+// ...existing code...
+// Esperar tecla válida (versión del módulo, namespaced para evitar colisiones)
+void mod_wait_for_keypress(void);
 
-// Nuevo: vaciar scancodes pendientes (8042)
-void kbd_flush(void);
+
+// Nuevo: vaciar scancodes pendientes (8042) - namespaced
+void mod_kbd_flush(void);
+
 
 #endif

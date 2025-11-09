@@ -2,18 +2,12 @@
 #define KERNEL_H
 
 // =================== TIPOS BÁSICOS ===================
-typedef unsigned char uint8_t;
-typedef unsigned short uint16_t;
-typedef unsigned int uint32_t;
-typedef unsigned int uintptr_t;
+#include <stdint.h>
+#include <stdbool.h>
 
-#if __STDC_VERSION__ < 202000L
-    #define bool _Bool
-    #define true 1
-    #define false 0
-#endif
-
+#ifndef NULL
 #define NULL ((void*)0)
+#endif
 
 // =================== VIDEO VGA ===================
 #define VGA_ADDRESS 0xB8000
@@ -84,7 +78,7 @@ void get_cursor(int* x, int* y);
 void set_cursor(int x, int y);
 // Espera a que se pulse cualquier tecla o a timeout (ms). Devuelve true si hubo tecla.
 bool wait_key_or_timeout_ms(int timeout_ms);
-// Espera bloqueante hasta pulsar alguna tecla (8042)
+// Mantener prototipos del kernel (usar stdbool/stdint)
 bool wait_for_keypress(void);
 // Vaciar el buffer del controlador de teclado 8042
 void kbd_flush(void);

@@ -36,7 +36,7 @@ void module_entry(void){
 
     // Indicador final: esperar explícitamente una tecla para salir.
     print_xy("Pulsa cualquier tecla para volver...", 2, 14, tit);
-    wait_for_keypress();
+    mod_wait_for_keypress();
 
     // Mensaje de despedida breve antes del return
     print_xy("Regresando al PseudoKernel...", 2, 15, txt);

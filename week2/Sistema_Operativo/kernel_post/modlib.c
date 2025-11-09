@@ -1,5 +1,5 @@
 #include "modlib.h"
-#include "kernel.h"
+#include "kernel.h". //me arregla el bool
 
 void cls(uint8_t attr){
     uint16_t fill = ((uint16_t)attr<<8) | ' ';
@@ -51,7 +51,7 @@ static inline uint8_t mod_read_scancode_block(void) {
 }
 
 // Vacía scancodes pendientes (manejando 0xE0)
-void kbd_flush(void){
+void mod_kbd_flush(void){
     for (int i=0; i<64; ++i) {
         if (!(inb(0x64) & 0x01)) break;
         uint8_t sc = (uint8_t)inb(0x60);
@@ -64,8 +64,8 @@ void kbd_flush(void){
 }
 
 // wait_for_keypress: exige release si tecla estaba sostenida, luego acepta el siguiente make
-void wait_for_keypress(void){
-    kbd_flush();
+void mod_wait_for_keypress(void){
+    mod_kbd_flush();
 
     // comprobar si hay makes repetidos -> tecla mantenida
     bool held = false;
