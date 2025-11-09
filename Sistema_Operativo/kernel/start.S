@@ -3,14 +3,14 @@
 .extern kmain
 
 _start:
-    cli
-    mov $0x90000, %esp
-    mov %esp, %ebp
+    cli                   # 1. Deshabilitar interrupciones
+    mov $0x80000, %esp    # 2. Configurar stack en 0x80000 (576KB)
+    mov %esp, %ebp        # 3. Base pointer = top del stack
     
-    # DEBUG: escribir '+' antes de llamar a kmain
+    # 4. Debug visual (opcional)
     movb $'+', 0xB8004
     movb $0x0F, 0xB8005
     
-    call kmain
+    call kmain            
 hang:
-    jmp hang
+    jmp hang              # 5. Si kmain retorna, colgar

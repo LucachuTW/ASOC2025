@@ -8,12 +8,34 @@ mov es, ax                   ; ES = 0   -> útil para copiar/cargar a memoria
 mov ss, ax                   ; SS = 0   -> segmento de pila
 mov sp, 0x7C00               ; SP = 0x7C00 -> top de la pila (escalamos al origen tras reiniciar las banderas de interrupciones) !!!ESTO ES EL STACK!!! Se recomienda ponerlo anterior a la posición de inicio real para tener un mayor espacio
 sti                          ; Reactiva interrupciones
-cld                          ; Limpia DF (aloca y opcionalmente da 6 bits de valor a cada inicializador): las ops de cadena avanzan SI/DI hacia delante
+cld                          ; Limpia DF (aloca y opcionalmente da 6 bits de valor a cada inicializador): loadsb y stosb incrementan SI/DI en vez de decrementarlos
 
 mov [BootDrive], dl          ; Guarda el número de disco de arranque que te da el BIOS en DL, que suele ser el bit "a la izquierda" de dx, generalmente empleado como gestor de posición
 
 mov si, msg                  ; 6) SI apunta a la cadena terminada en 0
 call print_string            ;   emplea una instrucción de la BIOS para imprimir
+
+; === BARRA DE PROGRESO ===
+mov cx, 10            ; 10 pasos
+
+mov si, progress_msg
+call print_string
+
+.progress_loop:
+    push cx
+    
+    mov al, '*'
+    call print_char
+    
+    call delay
+    
+    pop cx
+    loop .progress_loop
+
+    mov si, done_msg
+    call print_string
+; === FIN BARRA ===
+
 
 call load_kernel            ; Cargar kernel a 0x8000
 call enable_a20             ; Para poder acceder a memoria >1Mb en modo protegido
@@ -41,6 +63,15 @@ jmp .next                ; repetimos si jz no nos saca
 .done:
 ret
 
+delay:
+    mov ah, 0x86
+    mov cx, 0x0002    ; 150,000 microsegundos
+    mov dx, 0x93E0
+    int 0x15
+    ret
+
+progress_msg db 0x0D, 0x0A, '[', 0
+done_msg db '] OK', 0x0D, 0x0A, 0
 
 enable_a20:
 in al, 0x92             ; puerto de control
