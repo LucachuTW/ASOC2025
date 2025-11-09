@@ -74,23 +74,31 @@ delay:
 enable_a20:
 in al, 0x64             ; nos hacemos pasar por teclado
 or al, 00000010b        ; set bit A20
-out 0x92, al
+out 0x64, al
 ret
 
-load_kernel: ; ES:BX = destino 0x0000:0x8000
-xor ax, ax ; es redundante pero tengo espacio xd
-mov es, ax ; lo mismo
-mov bx, 0x8000 ; aquí se aloja el kernel
+load_kernel:
+; DEBUG: Print "L" 
+mov al, 'L'
+call print_char
 
-mov ah, 0x02        ; activo el modo de leer sectores, AL/CH/CL/DH/DL/ES:BX como parámetros
-mov al, [KernelSects] ; número de sectores (ajusta)
+; Leer el kernel desde el disco (sector 1 en adelante)
+xor ax, ax
+mov es, ax
+mov bx, 0x8000
 
-mov ch, 0x00        ; cilindro (https://wiki.osdev.org/Disk_access_using_the_BIOS_(INT_13h)
-mov cl, 0x02        ; sector inicial (el siguiente al boot)
-mov dh, 0x00        ; cabeza
-mov dl, [BootDrive] ; unidad
+mov ah, 0x02        ; leer sectores
+mov al, 4           ; leer 4 sectores
+mov ch, 0           ; cilindro 0
+mov cl, 2           ; sector 2 (el boot es sector 1)
+mov dh, 0           ; cabeza 0
+mov dl, [BootDrive] ; unidad del BIOS
 int 0x13
-jc disk_error       ; si falla -> error
+jc disk_error
+
+; DEBUG: Print "K"
+mov al, 'K'
+call print_char
 
 ret
 
@@ -152,8 +160,13 @@ pm_start:
     mov gs, ax
     mov ss, ax
 
-    mov esp, 0x90000
-    mov ebp, esp
+    ; === DESHABILITAR INTERRUPCIONES Y PIC ===
+    cli                     ; Deshabilitar interrupciones del CPU
+    
+    ; Máscara TODOS los IRQs del PIC (esto DETIENE las interrupciones de hardware)
+    mov al, 0xFF
+    out 0xA1, al            ; PIC esclavo (IRQ 8-15)
+    out 0x21, al            ; PIC maestro (IRQ 0-7)
 
     ; DEBUG: escribir '**' ANTES de llamar al kernel
     mov byte [0xB8000], '*'
@@ -161,21 +174,26 @@ pm_start:
     mov byte [0xB8002], '*'
     mov byte [0xB8003], 0x0F
 
-    ; Llamar al kernel cargado en 0x00008000
-    mov eax, 0x8000
-    call eax
+    ; DEBUG: Check if kernel was loaded by checking first byte
+    mov al, [0x8000]
+    mov byte [0xB8004], al
+    mov byte [0xB8005], 0x0F
+
+    ; Saltar al kernel cargado en 0x00008000
+    jmp 0x8000
 
 .hang:
+    cli
+    hlt
     jmp .hang
-
 [bits 16]
 
 ; --- Datos ---
 msg db 'Virus Payal==> ',  0 
 BootDrive db 0
 
-KernelSects db 5             ; Depende del tamaño real (kernel.bin / 512 redondeado hacia arriba) 
-; Se comprueba su tamaño con stat -f%z kernel.bin , y sus sectores con echo $((($(stat -f%z kernel.bin)+511)/512))
+KernelSects db 1            ; Depende del tamaño real (kernel.bin / 512 redondeado hacia arriba) 
+; Se comprueba su tamaño con stat -f%z kernel.bin , y sus sectores con echo $((($(stat -f%z kernel.bin)+511)/512)). 
 disk_msg db 'Error disco',0
 
 progress_msg db 0x0D, 0x0A, '[', 0

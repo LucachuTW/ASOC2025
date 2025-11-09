@@ -19,7 +19,7 @@ typedef unsigned int uint32_t;
 #define VGA_WIDTH 80
 #define VGA_HEIGHT 25
 
-// Colores VGA simplificados (combinados bg << 4 | fg)
+// Colores VGA (4 bits: 0-15)
 #define COLOR_BLACK         0x0
 #define COLOR_BLUE          0x1
 #define COLOR_GREEN         0x2
@@ -37,12 +37,18 @@ typedef unsigned int uint32_t;
 #define COLOR_YELLOW        0xE
 #define COLOR_WHITE         0xF
 
+// Macros para colores
+#define VGA_COLOR(bg, fg) ((bg << 4) | fg)
+
 // =================== FUNCIONES PÚBLICAS ===================
 void kmain(void);
 void clear_screen(void);
 void putchar(char c, unsigned char color);
 void print_string(const char* str, unsigned char color);
-void print_colored(const char* str, unsigned char bg, unsigned char fg);
-void print_hex(unsigned int value);
+void print_string_at(const char* str, unsigned char color, int x, int y);
+void print_colored_line(const char* str, unsigned char bg, unsigned char fg);
+void print_hex(uint32_t value);
+void print_dec(uint32_t value);
+void print_line(unsigned char color);
 
 #endif
