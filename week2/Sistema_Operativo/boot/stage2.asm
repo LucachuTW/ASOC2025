@@ -6,7 +6,7 @@
 ; IMPORTANTE: No reservar datos antes del código para que la entrada en 0x7E00 sea código.
 ; Usamos direcciones absolutas en 0x7E00..0x7E03 para que el kernel las lea.
 ; ===========================================
-STATUS_BASE   equ 0x7E00
+STATUS_BASE   equ 0x7E00 ;esto lo usamos para poder decir en el PseudoKernel que tenemos cargado
 DISK_OK       equ STATUS_BASE + 0
 KERNEL_SECTS  equ STATUS_BASE + 1
 MODULE_OK     equ STATUS_BASE + 2
@@ -15,7 +15,7 @@ MODULE_SECTS  equ STATUS_BASE + 3
 %include "kernel_sects.inc"
 
 ; ===========================================
-; STAGE 2 - BOOTLOADER REESCRITO
+; FUNCIONAMIENTO ÚTIL DEL BOOTLOADER 
 ; ===========================================
 ; Tareas:
 ; 1. Cargar kernel desde disco (sector 4+)
@@ -26,13 +26,7 @@ MODULE_SECTS  equ STATUS_BASE + 3
 ; ===========================================
 
 start:
-    ; Limpiar segmentos
-    xor ax, ax
-    mov ds, ax
-    mov es, ax
-    mov ss, ax
-    mov sp, 0x7C00
-    
+
     ; Guardar número de disco (viene en DL desde stage1)
     mov [boot_drive], dl
     
@@ -58,8 +52,8 @@ start:
     
     ; Configurar lectura desde disco (kernel principal)
     mov ah, 0x02            ; INT 13h función 02h = leer sectores
-    mov al, KS_COUNT        ; Número de sectores (desde kernel_sects.inc)
-    mov ch, 0               ; Cilindro 0
+    mov al, KS_COUNT        ; Número de sectores (desde kernel_sects, variable del makefile que se genera en el makefile con una instruccion equivalente a bytes=$(stat -f%z kernel.bin); sectors=$(( (bytes + 511) / 512 )) ;printf "KS_COUNT equ %d\n" "$sectors" > kernel_sects.inc)
+    mov ch, 0               ; Cilindro 0, las primeras según el estándar CHS
     mov cl, 4               ; Sector 4 (donde empieza el kernel)
     mov dh, 0               ; Cabeza 0
     mov dl, [boot_drive]    ; Disco de arranque
@@ -75,7 +69,7 @@ start:
     mov byte [KERNEL_SECTS], KS_COUNT
     
     ; Mostrar primer byte del kernel cargado (debug)
-    mov si, msg_first_byte
+    mov si, msg_first_byte ;esto existe porque estuve atascado aquí hora y media xd
     call print
     mov ax, 0x1000
     mov es, ax
@@ -93,22 +87,14 @@ start:
 
 .continue:
     ; ===========================================
-    ; PASO 2: HABILITAR LÍNEA A20
+    ; PASO 2: HABILITAR LÍNEA A20, requerido para el paso 3
     ; ===========================================
     call enable_a20
-
-    ; ===========================================
-    ; PASO EXTRA: (AHORA lo hará el kernel)
-    ; Dejar indicadores de módulo en 0 para que el kernel lo cargue mediante ATA PIO.
-    ; ===========================================
-    mov byte [MODULE_OK], 0
-    mov byte [MODULE_SECTS], 0
-    
     ; ===========================================
     ; PASO 3: CARGAR GDT Y CAMBIAR A MODO PROTEGIDO
     ; (Todas las llamadas BIOS ya realizadas)
     ; ===========================================
-    cli                     ; Deshabilitar interrupciones
+
     lgdt [gdt_descriptor]   ; Cargar tabla GDT
     
     ; Activar bit PE (Protection Enable) en CR0 y saltar a 32-bit
@@ -116,14 +102,14 @@ start:
     or eax, 0x1
     mov cr0, eax
     
-    ; Far jump para limpiar pipeline y cargar CS con selector de código
+    ; Far jump, salto con características de 32 bits para poder acceder al pseudokernel en modo protegido
     jmp 0x08:protected_mode
 
 ; ===========================================
 ; FUNCIONES DE MODO REAL (16-BIT)
 ; ===========================================
 
-; Habilitar A20 usando método Fast A20
+; Habilitar A20 usando método de teclado, más compatible
 enable_a20:
     in al, 0x64
     or al, 2
@@ -191,7 +177,7 @@ msg_module_ok       db '[Stage2] Modulo cargado (1 sector)', 13, 10, 0
 msg_module_fail     db '[Stage2] Modulo no encontrado', 13, 10, 0
 
 ; ===========================================
-; GDT (Global Descriptor Table)
+; GDT (Global Descriptor Table) ; esto simplemente "es" según lo que entiendo, le pedí a chatGPT que hiciera una compatible
 ; ===========================================
 align 8
 gdt_start:

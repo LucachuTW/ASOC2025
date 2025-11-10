@@ -82,9 +82,9 @@ os-image.bin: stage1.bin stage2.bin kernel_padded.bin module_post.bin
 	cat stage1.bin stage2.bin kernel_padded.bin module_post.bin > os-image.bin
 	truncate -s 1440k os-image.bin
 	@echo "=== Layout del disco ==="
-	@echo "Sector 0:     Stage1 (512 bytes)"
-	@echo "Sectores 1-2: Stage2 (1024 bytes)"
-	@echo "Sectores 3-?: Kernel ($$(stat -f%z kernel_padded.bin 2>/dev/null || stat -c%s kernel_padded.bin) bytes)"
+	@echo "Sector 1:     Stage1 (512 bytes)"
+	@echo "Sectores 2-3: Stage2 (1024 bytes)"
+	@echo "Sectores 4-?: Kernel ($$(stat -f%z kernel_padded.bin 2>/dev/null || stat -c%s kernel_padded.bin) bytes)"
 	@echo "Ultimo sector kernel +1: module_post.bin (512 bytes)"
 
 # === EJECUTAR ===

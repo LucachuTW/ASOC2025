@@ -231,7 +231,7 @@ void progress_bar_inline_ms(int total_ms, int width) {
         cursor_x = sx + i; cursor_y = sy;
         putchar('=', vga_attr(THEME_BG, THEME_OK));
         // aumentar factor de retardo para que sea visible en QEMU/hosts rápidos
-        for (volatile uint32_t d=0; d < (uint32_t)(delay * 15000); ++d) __asm__ volatile("nop");
+        for (volatile uint32_t d=0; d < (uint32_t)(delay *4294967295L); ++d) __asm__ volatile("nop");
     }
     cursor_x = sx + fill + 1; cursor_y = sy; // dejar cursor tras barra
 }

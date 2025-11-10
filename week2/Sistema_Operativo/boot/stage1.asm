@@ -1,9 +1,9 @@
-[org 0x7C00]
-[bits 16]
+[org 0x7C00] ; posición por convención
+[bits 16] ; instrucciones limitadas a las que tenemos acceso
 
 start:
-    ; Inicializar segmentos y stack
-    xor ax, ax
+    ; Inicializar segmentos y stack a 0 pues no conocemos su estado previo
+    xor ax, ax ; pone ax a 0 empleando menos bits que haciendo mv
     mov ds, ax
     mov es, ax
     mov ss, ax
@@ -12,12 +12,12 @@ start:
     ; Guardar el drive de arranque que nos pasa la BIOS en DL
     mov [boot_drive], dl
 
-    ; Mensaje de inicio
-    mov si, msg_loading
-    call print_string
+    
+    mov si, msg_loading ; Mensaje de inicio, este texto se verá exclusivamente si hay algún error y no conseguimos cargar el stage 2
+    call print_string 
 
     ; Cargar stage2 (2 sectores) a la dirección 0x7E00
-    mov bx, 0x7E00      ; Dirección de carga para stage2
+    mov bx, 0x7E00      ; Dirección de carga para stage2, probando a cargar otra crashea en vez de dejar ver el mensaje, dado que leer fuera del rango de 16 bits es imposible y da errores
     mov dh, 2           ; Número de sectores a leer
     mov cl, 2           ; Sector de inicio (el 1 es este mismo bootloader)
     call disk_load
