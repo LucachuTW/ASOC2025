@@ -76,11 +76,16 @@ void kmain(void) {
 	print_dec(ksize);
 	print_string(" bytes)", C(THEME_MUTED));
 	putchar('\n', C(THEME_MUTED));
-	print_string("  Stack:         ", C(THEME_MUTED));
-	print_hex(0x00090000);
+
+	/* Mostrar ESP real en lugar de una constante hardcodeada */
+	print_string("  Stack (ESP):   ", C(THEME_MUTED));
+	uint32_t esp_now = read_esp();
+	print_hex(esp_now);
 	putchar('\n', C(THEME_MUTED));
+
+	/* Mostrar la dirección VGA usando la macro del kernel */
 	print_string("  VGA:           ", C(THEME_MUTED));
-	print_hex(0x000B8000);
+	print_hex((uint32_t)VGA_ADDRESS);
 	putchar('\n', C(THEME_MUTED));
 
 	newline(C(THEME_TEXT));
@@ -193,22 +198,24 @@ void kmain(void) {
 		print_status_checked("Acceso VGA", vga2);
 		newline(C(THEME_TEXT));
 		print_separator('-', vga_attr(THEME_BG, THEME_ACCENT));
-		uint32_t kstart2 = (uint32_t)&_start, kend2 = (uint32_t)&_end;
-		uint32_t ksize2 = kend2 - kstart2;
-		print_string("  PseudoKernel:  ", C(THEME_MUTED));
-		print_hex(kstart);
-		print_string(" - ", C(THEME_MUTED));
-		print_hex(kend);
-		print_string(" (", C(THEME_MUTED));
-		print_dec(ksize);
-		print_string(" bytes)", C(THEME_MUTED));
-		putchar('\n', C(THEME_MUTED));
-		print_string("  Stack:         ", C(THEME_MUTED));
-		print_hex(0x00090000);
-		putchar('\n', C(THEME_MUTED));
-		print_string("  VGA:           ", C(THEME_MUTED));
-		print_hex(0x000B8000);
-		putchar('\n', C(THEME_MUTED));
+	uint32_t kstart2 = (uint32_t)&_start, kend2 = (uint32_t)&_end;
+	uint32_t ksize2 = kend2 - kstart2;
+	print_string("  PseudoKernel:  ", C(THEME_MUTED));
+	print_hex(kstart2);
+	print_string(" - ", C(THEME_MUTED));
+	print_hex(kend2);
+	print_string(" (", C(THEME_MUTED));
+	print_dec(ksize2);
+	print_string(" bytes)", C(THEME_MUTED));
+	putchar('\n', C(THEME_MUTED));
+
+	/* Mostrar ESP real y dirección VGA (no hardcodeado) */
+	print_string("  Stack (ESP):   ", C(THEME_MUTED));
+	print_hex(read_esp());
+	putchar('\n', C(THEME_MUTED));
+	print_string("  VGA:           ", C(THEME_MUTED));
+	print_hex((uint32_t)VGA_ADDRESS);
+	putchar('\n', C(THEME_MUTED));
 		newline(C(THEME_TEXT));
 		print_separator('=', sep1);
 		print_centered("Ejecucion exitosa", vga_attr(THEME_BG, THEME_OK));
