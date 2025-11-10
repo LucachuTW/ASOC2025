@@ -2,75 +2,193 @@
 [bits 16] ; instrucciones limitadas a las que tenemos acceso
 
 start:
-    ; Inicializar segmentos y stack a 0 pues no conocemos su estado previo
-    xor ax, ax ; pone ax a 0 empleando menos bits que haciendo mv
+    ; Inicializar segmentos y stack
+    xor ax, ax
     mov ds, ax
     mov es, ax
     mov ss, ax
     mov sp, 0x7C00
+    mov [boot_drive], dl ; guardar drive de la BIOS
 
-    ; Guardar el drive de arranque que nos pasa la BIOS en DL
-    mov [boot_drive], dl
+    ; Banner mínimo (branding Virus Payal)
+    mov si, brand1
+    call puts
+    mov si, brand2
+    call puts
 
+    ; NOTA: hemos eliminado la persistencia en CMOS y la variable last_drive
+    ; para simplificar (menos bloat). Se usa directamente el valor que BIOS
+    ; nos pasa en DL (guardado en boot_drive arriba).
+
+.scan:
+    ; Sondeo simple de 4 unidades con índice legible; construimos máscara de presencia
+    xor di, di
+    mov byte [present_mask], 0
+.probe:
+    ; Imprimir índice [0-3]
+    mov al, '['
+    call putc
+    mov ax, di
+    add al, '0'
+    call putc
+    mov al, ']'
+    call putc
+    mov al, ' '
+    call putc
     
-    mov si, msg_loading ; Mensaje de inicio, este texto se verá exclusivamente si hay algún error y no conseguimos cargar el stage 2
-    call print_string 
+    ; Probar unidad
+    mov bl, [drives + di]
+    mov dl, bl
+    xor ah, ah
+    int 0x13            ; reset
+    jc .not_found
+    
+    ; Disco encontrado: imprimir hex y marcar presencia en la máscara
+    mov al, bl
+    call puthex
+    mov al, 1
+    mov cx, di
+    shl al, cl
+    or [present_mask], al
+    ; imprimir espacio separador
+    mov al, ' '
+    call putc
+    jmp .next
 
-    ; Cargar stage2 (2 sectores) a la dirección 0x7E00
-    mov bx, 0x7E00      ; Dirección de carga para stage2, probando a cargar otra crashea en vez de dejar ver el mensaje, dado que leer fuera del rango de 16 bits es imposible y da errores
-    mov dh, 2           ; Número de sectores a leer
-    mov cl, 2           ; Sector de inicio (el 1 es este mismo bootloader)
+.not_found:
+    ; Disco no responde: imprimir -- y espacio separador
+    mov al, '-'
+    call putc
+    call putc
+    mov al, ' '
+    call putc
+    jmp .next
+    
+.next:
+    mov al, ' '
+    call putc
+    inc di
+    cmp di, 4
+    jb .probe
+
+    ; Prompt (reducido)
+    mov si, m_sel
+    call puts
+
+.wait_key:
+    ; Leer tecla con eco
+    xor ah, ah
+    int 0x16            ; AL = tecla ASCII
+    
+    ; Mostrar eco de la tecla (imprime el carácter ASCII que devolvió int 0x16)
+    push ax
+    call putc
+    pop ax
+    
+    ; Si es ENTER, usar default (y persistir si aún no estaba)
+    cmp al, 0x0D
+    je .use_default
+    
+    ; Si es 1-3, seleccionar
+    cmp al, '1'
+    jb .wait_key        ; < '1': ignorar y esperar otra tecla
+    cmp al, '3'
+    ja .wait_key        ; > '3': ignorar y esperar otra tecla
+    
+    ; Tecla válida preliminar: convertir índice
+    sub al, '0'
+    xor bh, bh
+    mov bl, al
+    ; Validar que la unidad está presente según máscara
+    mov al, 1
+    mov cx, bx
+    shl al, cl
+    and al, [present_mask]
+    jz .invalid_sel      ; no presente -> pedir otra tecla
+    ; Unidad presente: aplicar selección
+    mov dl, [drives + bx]
+    mov [boot_drive], dl
+    ; Guardamos la selección en la zona compartida para stage2
+    mov di, 0x7E04
+    mov [di], dl
+    jmp .go
+
+.invalid_sel:
+    ; Aviso breve con '!'
+    mov al, '!'
+    call putc
+    jmp .wait_key
+
+.use_default:
+    ; ENTER presionado: usar boot_drive actual y guardarlo en zona compartida
+    mov dl, [boot_drive]
+    mov di, 0x7E04
+    mov [di], dl
+
+.go:
+    ; Cargar stage2
+    mov bx, 0x7E00
+    mov dh, 2
+    mov cl, 2
     call disk_load
-
-    ; Mensaje de éxito
-    mov si, msg_success
-    call print_string
-
-    ; Saltar a stage2
     jmp 0x0000:0x7E00
 
-; --- Funciones ---
+; Rutinas compactas
+cmos_read: ; (dejado como stub por compatibilidad futura)
+    ; Antes esta rutina leía CMOS en AL y guardaba en BL. Ya no la usamos,
+    ; pero dejamos un stub que devuelve 0 en BL para evitar cambios mayores
+    xor al, al
+    mov bl, al
+    ret
+
+cmos_write: ; (stub, no hacemos writes a CMOS para reducir bloat)
+    ret
 
 disk_load:
-    push dx             ; Guardar DX (contiene número de sectores)
-    mov ah, 0x02        ; Función de lectura de la BIOS
-    mov al, dh          ; Número de sectores
-    mov ch, 0           ; Cilindro 0
-    ; CL ya tiene el sector de inicio
-    mov dh, 0           ; Cabeza 0
-    mov dl, [boot_drive] ; Usar el drive de arranque guardado
-    ; ES:BX ya apunta al buffer de destino
+    push dx
+    mov ah, 0x02
+    mov al, dh
+    mov ch, 0
+    mov dh, 0
+    mov dl, [boot_drive]
     int 0x13
-    jc disk_error       ; Si hay error (carry flag = 1), saltar
+    jc $
     pop dx
-    cmp al, dh          ; Comprobar si se leyeron los sectores esperados
-    jne disk_error
     ret
 
-disk_error:
-    mov si, msg_error
-    call print_string
-    jmp $               ; Bucle infinito
-
-print_string:
-    pusha
-.loop:
-    lodsb               ; Cargar byte de [SI] en AL, e incrementar SI
-    cmp al, 0
-    je .done
-    mov ah, 0x0E        ; Función de teletipo de la BIOS
+puts:
+    lodsb
+    test al, al
+    jz .d
+    mov ah, 0x0E
     int 0x10
-    jmp .loop
-.done:
-    popa
+    jmp puts
+.d: ret
+
+putc:
+    mov ah, 0x0E
+    int 0x10
     ret
 
-; --- Datos y relleno ---
+puthex:
+    push ax
+    shr al, 4
+    call .n
+    pop ax
+    and al, 0x0F
+.n: cmp al, 10
+    jl .d
+    add al, 7
+.d: add al, '0'
+    call putc
+    ret
 
 boot_drive: db 0
-msg_loading: db '[S1] Cargando Stage 2...', 13, 10, 0
-msg_success: db '[S1] OK', 13, 10, 0
-msg_error:   db '[S1] Error de disco', 13, 10, 0
+drives: db 0x00,0x80,0x01,0x81
+m_sel: db 13,10,'1-3/ENTER:',0
+present_mask: db 0
+brand1: db '[Virus Payal]',13,10,0
+brand2: db 'Selector discos:',13,10,0
 
 ; Rellenar el resto del sector con ceros hasta la firma
 times 510 - ($ - $$) db 0

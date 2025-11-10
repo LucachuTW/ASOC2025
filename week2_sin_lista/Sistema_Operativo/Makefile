@@ -1,0 +1,125 @@
+CC = x86_64-elf-gcc
+LD = x86_64-elf-ld
+OBJCOPY = x86_64-elf-objcopy
+ASM = nasm
+
+CFLAGS = -m32 -ffreestanding -fno-pic -nostdlib -Os -g -ffunction-sections -fdata-sections -Ikernel_boot
+LDFLAGS = -m elf_i386 -T linker.ld -nostdlib --gc-sections
+ASMFLAGS = -f bin
+
+.PHONY: all clean run test-stage1 test-stage2 info debug
+
+all: os-image.bin
+
+# === STAGE 1 BOOTLOADER (512 bytes) ===
+stage1.bin: boot/stage1.asm
+	$(ASM) $(ASMFLAGS) boot/stage1.asm -o stage1.bin
+	@size=$$(stat -f%z stage1.bin 2>/dev/null || stat -c%s stage1.bin); \
+	if [ "$$size" != "512" ]; then \
+		echo "ERROR: stage1.bin es $$size bytes (debe ser 512)"; \
+		exit 1; \
+	fi
+
+# === KERNEL ===
+start.o: kernel_boot/start.S
+	$(CC) $(CFLAGS) -c kernel_boot/start.S -o start.o
+
+kernel.o: kernel_boot/kernel.c kernel_boot/kernel.h kernel_boot/kernelfunciones.c
+	$(CC) $(CFLAGS) -c kernel_boot/kernel.c -o kernel.o
+
+kernelfunciones.o: kernel_boot/kernelfunciones.c kernel_boot/kernel.h
+	$(CC) $(CFLAGS) -c kernel_boot/kernelfunciones.c -o kernelfunciones.o
+
+kernel.elf: start.o kernel.o kernelfunciones.o linker.ld
+	$(LD) $(LDFLAGS) -o kernel.elf start.o kernel.o kernelfunciones.o
+
+kernel.bin: kernel.elf
+	$(OBJCOPY) -O binary kernel.elf kernel.bin
+	@echo "Kernel compilado: $$(stat -f%z kernel.bin 2>/dev/null || stat -c%s kernel.bin) bytes"
+
+# === GENERAR kernel_sects.inc ===
+kernel_sects.inc: kernel.bin
+	@size=$$(stat -f%z kernel.bin 2>/dev/null || stat -c%s kernel.bin); \
+	sectors=$$((($$size + 511) / 512)); \
+	echo "; Auto-generado" > kernel_sects.inc; \
+	echo "KS_COUNT equ $$sectors" >> kernel_sects.inc; \
+	echo "Kernel: $$size bytes = $$sectors sectores"
+
+# === STAGE 2 BOOTLOADER (1024 bytes) ===
+stage2.bin: boot/stage2.asm kernel_sects.inc
+	$(ASM) $(ASMFLAGS) boot/stage2.asm -o stage2.bin
+	@size=$$(stat -f%z stage2.bin 2>/dev/null || stat -c%s stage2.bin); \
+	if [ "$$size" != "1024" ]; then \
+		echo "ERROR: stage2.bin es $$size bytes (debe ser 1024)"; \
+		exit 1; \
+	fi
+
+# === KERNEL PADDING A MÚLTIPLO DE 512 ===
+kernel_padded.bin: kernel.bin kernel_sects.inc
+	cp kernel.bin kernel_padded.bin
+	@size=$$(stat -f%z kernel.bin 2>/dev/null || stat -c%s kernel.bin); \
+	sectors=$$((($$size + 511) / 512)); \
+	pad=$$((sectors * 512)); \
+	truncate -s $$pad kernel_padded.bin; \
+	echo "Kernel padded a $$pad bytes ($$sectors sectores)"
+
+# === IMAGEN FINAL DEL DISCO ===
+# === MÓDULO POST (C + header ASM, 32-bit) ===
+module_header.o: kernel_post/module_header.S
+	$(CC) $(CFLAGS) -c kernel_post/module_header.S -o module_header.o
+
+module_entry.o: kernel_post/module_entry.c
+	$(CC) $(CFLAGS) -c kernel_post/module_entry.c -o module_entry.o
+
+modlib.o: kernel_post/modlib.c kernel_post/modlib.h
+	$(CC) $(CFLAGS) -c kernel_post/modlib.c -o modlib.o
+
+module_post.bin: module_header.o module_entry.o modlib.o kernel_post/module.ld
+	$(LD) -m elf_i386 -T kernel_post/module.ld -nostdlib -o module_post.bin module_header.o module_entry.o modlib.o
+	@echo "Modulo compilado: $$(stat -f%z module_post.bin 2>/dev/null || stat -c%s module_post.bin) bytes"
+
+os-image.bin: stage1.bin stage2.bin kernel_padded.bin module_post.bin
+	cat stage1.bin stage2.bin kernel_padded.bin module_post.bin > os-image.bin
+	truncate -s 1440k os-image.bin
+	@echo "=== Layout del disco ==="
+	@echo "Sector 1:     Stage1 (512 bytes)"
+	@echo "Sectores 2-3: Stage2 (1024 bytes)"
+	@echo "Sectores 4-?: Kernel ($$(stat -f%z kernel_padded.bin 2>/dev/null || stat -c%s kernel_padded.bin) bytes)"
+	@echo "Ultimo sector kernel +1: module_post.bin (512 bytes)"
+
+# === EJECUTAR ===
+run: os-image.bin
+	qemu-system-i386 -no-reboot -drive format=raw,file=os-image.bin
+
+# === RECONSTRUCCIÓN CON TRACES DE MAKE ===
+debug:
+	@echo "=== Debug: reconstrucción verbosa ==="
+	$(MAKE) clean
+	$(MAKE) --debug=v --always-make VERBOSE=1 os-image.bin
+	@echo "=== Estado tras debug build ==="
+	$(MAKE) info
+
+# === TESTS INCREMENTALES ===
+test-stage1: stage1.bin
+	cp stage1.bin test-stage1.bin
+	truncate -s 1440k test-stage1.bin
+	qemu-system-i386 -drive format=raw,file=test-stage1.bin
+
+test-stage2: stage1.bin stage2.bin
+	cat stage1.bin stage2.bin > test-stage2.bin
+	truncate -s 1440k test-stage2.bin
+	qemu-system-i386 -drive format=raw,file=test-stage2.bin
+
+# === INFO ===
+info:
+	@echo "=== Estado ==="
+	@ls -lh stage1.bin stage2.bin kernel.bin os-image.bin 2>/dev/null || echo "Archivos faltantes"
+	@echo ""
+	@echo "=== kernel_sects.inc ==="
+	@cat kernel_sects.inc 2>/dev/null || echo "No generado"
+
+# === LIMPIAR ===
+clean:
+	rm -f *.bin *.o *.elf kernel_sects.inc test-*.bin
+
+.PHONY: all clean run test-stage1 test-stage2 info
