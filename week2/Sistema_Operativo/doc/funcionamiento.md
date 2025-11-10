@@ -102,11 +102,5 @@ make run
 
 ---
 
-## Autoría y créditos
-- Proyecto y bootloader: Emefedez
-- Adaptaciones y modularización: colaborativo
-
----
-
 ## Contacto y contribuciones
 Para dudas, mejoras o contribuciones, revisa el README.md principal o abre un issue en el repositorio.
