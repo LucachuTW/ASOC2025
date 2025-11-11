@@ -7,6 +7,13 @@ CFLAGS = -m32 -ffreestanding -fno-pic -nostdlib -Os -g -ffunction-sections -fdat
 LDFLAGS = -m elf_i386 -T linker.ld -nostdlib --gc-sections
 ASMFLAGS = -f bin
 
+# Tamaño por defecto de la imagen (puedes sobrescribir con `make IMAGE_SIZE=10M`)
+IMAGE_SIZE ?= 1440k
+
+# Convertidor portable de sufijos (k, M, G, T) a bytes.
+# Se reutiliza en las recetas para no repetir el awk largo.
+AWK_TO_BYTES = awk -v s="$(IMAGE_SIZE)" 'BEGIN{if(s==""){print 0;exit} l=tolower(substr(s,length(s),1)); if(l=="k"){n=substr(s,1,length(s)-1);print int(n*1024)} else if(l=="m"){n=substr(s,1,length(s)-1);print int(n*1024*1024)} else if(l=="g"){n=substr(s,1,length(s)-1);print int(n*1024*1024*1024)} else if(l=="t"){n=substr(s,1,length(s)-1);print int(n*1024*1024*1024*1024)} else {print int(s)} }'
+
 .PHONY: all clean run test-stage1 test-stage2 info debug
 
 all: os-image.bin
@@ -61,7 +68,7 @@ kernel_padded.bin: kernel.bin kernel_sects.inc
 	sectors=$$((($$size + 511) / 512)); \
 	pad=$$((sectors * 512)); \
 	truncate -s $$pad kernel_padded.bin; \
-	echo "Kernel padded a $$pad bytes ($$sectors sectores)"
+	echo "PseudoKernel padded a $$pad bytes ($$sectors sectores)"
 
 # === IMAGEN FINAL DEL DISCO ===
 # === MÓDULO POST (C + header ASM, 32-bit) ===
@@ -78,9 +85,23 @@ module_post.bin: module_header.o module_entry.o modlib.o kernel_post/module.ld
 	$(LD) -m elf_i386 -T kernel_post/module.ld -nostdlib -o module_post.bin module_header.o module_entry.o modlib.o
 	@echo "Modulo compilado: $$(stat -f%z module_post.bin 2>/dev/null || stat -c%s module_post.bin) bytes"
 
+
+# === TRUNCAMOS POR SEGURIDAD, PERO AL TAMAÑO DE LA IMAGEN PARA INCLUIR TODO ===
+
 os-image.bin: stage1.bin stage2.bin kernel_padded.bin module_post.bin
+	@echo "Concatenando imagen..."
 	cat stage1.bin stage2.bin kernel_padded.bin module_post.bin > os-image.bin
-	truncate -s 1440k os-image.bin
+	
+	# Calcular tamaño real de la imagen concatenada y convertir IMAGE_SIZE a bytes
+
+	actual=$$(stat -f%z os-image.bin 2>/dev/null || stat -c%s os-image.bin); \
+	desired=$$($(AWK_TO_BYTES)); \
+	if [ "$$actual" -gt "$$desired" ]; then \
+		echo "Imagen concatenada $$actual bytes supera IMAGE_SIZE=$(IMAGE_SIZE) ($$desired bytes). Ampliando imagen a $$actual bytes."; \
+		truncate -s $$actual os-image.bin; \
+	else \
+		truncate -s $$desired os-image.bin; \
+	fi
 	@echo "=== Layout del disco ==="
 	@echo "Sector 1:     Stage1 (512 bytes)"
 	@echo "Sectores 2-3: Stage2 (1024 bytes)"
@@ -102,12 +123,28 @@ debug:
 # === TESTS INCREMENTALES ===
 test-stage1: stage1.bin
 	cp stage1.bin test-stage1.bin
-	truncate -s 1440k test-stage1.bin
+	# Igual que en os-image.bin: calcular tamaño real y expandir si hace falta
+	actual=$$(stat -f%z test-stage1.bin 2>/dev/null || stat -c%s test-stage1.bin); \
+	desired=$$($(AWK_TO_BYTES)); \
+	if [ "$$actual" -gt "$$desired" ]; then \
+		echo "test-stage1: archivo $$actual bytes supera IMAGE_SIZE=$(IMAGE_SIZE) ($$desired bytes). Ampliando a $$actual bytes."; \
+		truncate -s $$actual test-stage1.bin; \
+	else \
+		truncate -s $$desired test-stage1.bin; \
+	fi
 	qemu-system-i386 -drive format=raw,file=test-stage1.bin
 
 test-stage2: stage1.bin stage2.bin
 	cat stage1.bin stage2.bin > test-stage2.bin
-	truncate -s 1440k test-stage2.bin
+	# Igual que en os-image.bin: calcular tamaño real y expandir si hace falta
+	actual=$$(stat -f%z test-stage2.bin 2>/dev/null || stat -c%s test-stage2.bin); \
+	desired=$$($(AWK_TO_BYTES)); \
+	if [ "$$actual" -gt "$$desired" ]; then \
+		echo "test-stage2: archivo $$actual bytes supera IMAGE_SIZE=$(IMAGE_SIZE) ($$desired bytes). Ampliando a $$actual bytes."; \
+		truncate -s $$actual test-stage2.bin; \
+	else \
+		truncate -s $$desired test-stage2.bin; \
+	fi
 	qemu-system-i386 -drive format=raw,file=test-stage2.bin
 
 # === INFO ===
