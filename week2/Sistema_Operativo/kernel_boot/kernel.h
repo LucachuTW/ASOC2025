@@ -106,12 +106,21 @@ bool check_a20_enabled(void);
 bool check_vga_access(void);
 uint32_t read_esp(void);
 
-// Direcciones compartidas con stage2
-#define STAGE2_BASE          0x00007E00  // Inicio de stage2 en memoria
-#define STAGE2_DISK_OK       (STAGE2_BASE + 0) // byte de estado lectura kernel
-#define STAGE2_KERNEL_SECTS  (STAGE2_BASE + 1) // sectores kernel
-#define STAGE2_MODULE_OK     (STAGE2_BASE + 2) // módulo opcional leído
-#define STAGE2_MODULE_SECTS  (STAGE2_BASE + 3) // sectores módulo opcional
+// Direcciones compartidas con stage2 (header verificable)
+// stage2 escribe un header verificable en 0x7E00 tras cargar el kernel:
+// [0..1] word MAGIC = 0x5453 ('S''T'), [2] version, [3] disk, [4] kernel_sects
+#define STAGE2_BASE          0x00007E00
+#define STAGE2_MAGIC         (STAGE2_BASE + 0)  /* word */
+#define STAGE2_VERSION       (STAGE2_BASE + 2)  /* byte */
+#define STAGE2_DISK          (STAGE2_BASE + 3)  /* byte */
+#define STAGE2_KERNEL_SECTS  (STAGE2_BASE + 4)  /* byte */
+
+// Compatibilidad con nombres previos (mapeamos al nuevo header)
+#define STAGE2_DISK_OK       STAGE2_DISK
+#undef STAGE2_MODULE_OK
+#define STAGE2_MODULE_OK     (STAGE2_BASE + 5)
+#undef STAGE2_MODULE_SECTS
+#define STAGE2_MODULE_SECTS  (STAGE2_BASE + 6)
 
 // Dirección donde stage2 intenta cargar módulo opcional
 #define MODULE_LOAD_ADDRESS  0x00012000

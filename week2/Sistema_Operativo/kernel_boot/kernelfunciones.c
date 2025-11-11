@@ -367,19 +367,19 @@ bool load_kernel_post(void) {
     // IMPORTANTE: usar el recuento real de sectores cargados por stage2 (excluye .bss),
     // ya que &_end - &_start incluye .bss y puede desincronizarse con el tamaño en disco.
     volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
-    uint32_t ksects = status[1]; // KERNEL_SECTS establecido por stage2.asm
+    uint32_t ksects = *(volatile uint8_t*)STAGE2_KERNEL_SECTS; // KERNEL_SECTS establecido por stage2.asm (header)
     uint32_t module_lba = 3 + ksects;
     if (ata_read28(module_lba, (void*)MODULE_LOAD_ADDRESS) == 0) {
         // Validar magic aceptado
         volatile char* m = (volatile char*)MODULE_LOAD_ADDRESS;
         bool ok = ((m[0]=='M' && m[1]=='O' && m[2]=='D' && m[3]=='0') || (m[0]=='M' && m[1]=='B' && m[2]=='I' && m[3]=='N'));
         if (ok) {
-            status[2] = 1; // MODULE_OK
-            status[3] = 1; // MODULE_SECTS
+            *(volatile uint8_t*)STAGE2_MODULE_OK = 1; // MODULE_OK
+            *(volatile uint8_t*)STAGE2_MODULE_SECTS = 1; // MODULE_SECTS (1 sector)
             return true;
         } else {
             // No hay módulo válido
-            status[2] = 0; status[3] = 0;
+            *(volatile uint8_t*)STAGE2_MODULE_OK = 0; *(volatile uint8_t*)STAGE2_MODULE_SECTS = 0;
             return false;
         }
     }
@@ -393,7 +393,7 @@ bool module_probe(void) {
     // Calcular LBA del módulo igual que load_kernel_post, pero sin efectos secundarios.
     // Usar KERNEL_SECTS reportado por stage2 para evitar incluir .bss en el cómputo.
     volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
-    uint32_t ksects = status[1];
+    uint32_t ksects = *(volatile uint8_t*)STAGE2_KERNEL_SECTS;
     uint32_t module_lba = 3 + ksects;
     if (ata_read28(module_lba, (void*)g_module_buf) != 0) return false;
     bool legacy = (g_module_buf[0]=='M' && g_module_buf[1]=='O' && g_module_buf[2]=='D' && g_module_buf[3]=='0');
@@ -417,7 +417,7 @@ bool module_finalize_after_bar(void) {
 
     // Calcular LBA base del módulo
     volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
-    uint32_t ksects = status[1];
+    uint32_t ksects = *(volatile uint8_t*)STAGE2_KERNEL_SECTS;
     uint32_t module_lba = 3 + ksects;
 
     // Leer los sectores restantes (ya tenemos el primero)
@@ -428,7 +428,7 @@ bool module_finalize_after_bar(void) {
         }
         loaded++;
     }
-    status[2] = (loaded==sectors_needed) ? 1 : 1; // marcar como presente aunque incompleto
-    status[3] = (uint8_t)loaded;
+    *(volatile uint8_t*)STAGE2_MODULE_OK = (loaded==sectors_needed) ? 1 : 1; // marcar como presente aunque incompleto
+    *(volatile uint8_t*)STAGE2_MODULE_SECTS = (uint8_t)loaded;
     return loaded >= 1;
 }

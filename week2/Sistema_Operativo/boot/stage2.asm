@@ -64,9 +64,14 @@ start:
     mov si, msg_ok
     call print
 
-    ; Marcar estado de lectura kernel
-    mov byte [DISK_OK], 1
-    mov byte [KERNEL_SECTS], KS_COUNT
+    ; --- Escribimos un header verificable en STATUS_BASE (después de la lectura)
+    mov ax, 0x5453                 ; 'S' 'T' (little-endian)
+    mov [STATUS_BASE], ax
+    mov byte [STATUS_BASE + 2], 1  ; versión 1
+    mov al, [boot_drive]
+    mov [STATUS_BASE + 3], al      ; disco usado
+    mov al, KS_COUNT
+    mov [STATUS_BASE + 4], al      ; número de sectores del kernel
     
     ; Mostrar primer byte del kernel cargado (debug)
     mov si, msg_first_byte ;esto existe porque estuve atascado aquí hora y media xd

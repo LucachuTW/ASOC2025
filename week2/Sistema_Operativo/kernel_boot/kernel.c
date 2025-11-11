@@ -88,6 +88,23 @@ void kmain(void) {
 	print_hex((uint32_t)VGA_ADDRESS);
 	putchar('\n', C(THEME_MUTED));
 
+	/* --- Comprobación del header escrito por stage2 en 0x7E00 --- */
+	uint16_t stage_magic = *(volatile uint16_t *)STAGE2_MAGIC;
+	if (stage_magic == 0x5453) { /* 'S' 'T' */
+		uint8_t ver = *(volatile uint8_t *)STAGE2_VERSION;
+		uint8_t disk = *(volatile uint8_t *)STAGE2_DISK;
+		uint8_t ksecs = *(volatile uint8_t *)STAGE2_KERNEL_SECTS;
+		print_string("  Stage2 header v", C(THEME_MUTED));
+		print_dec(ver);
+		print_string(" disk=", C(THEME_MUTED));
+		print_hex(disk);
+		print_string(" ks=", C(THEME_MUTED));
+		print_dec(ksecs);
+		putchar('\n', C(THEME_MUTED));
+	} else {
+		print_string("  Stage2: no header detectado, usando fallback\n", C(THEME_MUTED));
+	}
+
 	newline(C(THEME_TEXT));
 	print_separator('=', sep1);
 
