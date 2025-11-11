@@ -189,7 +189,7 @@ gdt_start:
 
 gdt_null:           ; Descriptor nulo (obligatorio)
     dq 0x0
-
+;todos iguales
 gdt_code:           ; Descriptor de segmento de código
     dw 0xFFFF       ; Límite (bits 0-15)
     dw 0x0000       ; Base (bits 0-15)
@@ -228,6 +228,7 @@ protected_mode:
     ; Configurar pila en 0x90000
     mov esp, 0x90000
     
+    ;LUEGO HACER carga justo antes la memoria, hay una instruccion para esto,
     ; Saltar al kernel cargado en 0x10000
     jmp 0x10000
 

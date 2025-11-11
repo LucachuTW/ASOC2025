@@ -26,7 +26,7 @@ start:
     mov si, msg_success
     call print_string
 
-    ; Saltar a stage2
+    ; Saltar a stage2 desde cs valiendo 0 y usa el pipeline para limpiar instrucciones de 16 bits antes de una de 32
     jmp 0x0000:0x7E00
 
 ; --- Funciones ---
