@@ -121,38 +121,21 @@ void kmain(void) {
 		print_string("  Copia modulo: ", C(THEME_MUTED));
 		print_string(finalized ? "OK" : "FALLO", finalized ? vga_attr(THEME_BG, THEME_OK) : vga_attr(THEME_BG, THEME_ERR));
 		newline(C(THEME_TEXT));
-		// Título compacto detalles de módulo (reducimos altura)
-		print_string("  -- Detalles modulo --", vga_attr(THEME_BG, THEME_ACCENT));
-		newline(C(THEME_TEXT));
+		
 		// Mostrar OK a continuación de la barra
 		set_cursor(bar_x + bar_fill + 1, bar_y); // ya queda ahí tras animate, reforzamos
 		print_string(" OK", vga_attr(THEME_BG, THEME_OK));
 		newline(C(THEME_TEXT));
-		// Resolver y validar cabecera del módulo antes de ejecutar
-		volatile unsigned char *m = (volatile unsigned char *)MODULE_LOAD_ADDRESS;
-		uint16_t version = 0, length_field = 0;
-		uint32_t entry_off = 0;
-		bool header_ok = mod0_parse(m, &version, &length_field, &entry_off);
-		print_string("  Cabecera: ", C(THEME_MUTED));
-		if (header_ok) {
+		// Resolver y validar cabecera ELF del módulo antes de ejecutar
+		print_string("  Cabecera ELF: ", C(THEME_MUTED));
+		module_entry_fn = (void (*)(void))module_get_entry();
+		if (module_entry_fn) {
 			print_string("OK", vga_attr(THEME_BG, THEME_OK));
-			// Validar rango de entry
-			bool entry_valid = (version == 1 && entry_off >= 16 && entry_off < 512 && (uintptr_t)MODULE_LOAD_ADDRESS + entry_off < (uintptr_t)MODULE_LOAD_ADDRESS + 512);
-			if (entry_valid)
-				module_entry_fn = (void (*)(void))((uintptr_t)MODULE_LOAD_ADDRESS + entry_off);
-			print_string(" ver=", C(THEME_MUTED));
-			print_dec(version);
-			print_string(" len=", C(THEME_MUTED));
-			print_dec(length_field);
-			print_string(" entry_off=", C(THEME_MUTED));
-			print_hex(entry_off);
-			print_string(entry_valid ? " (valido)" : " (invalido)", entry_valid ? vga_attr(THEME_BG, THEME_OK) : vga_attr(THEME_BG, THEME_ERR));
+			print_string(" entry=", C(THEME_MUTED));
+			print_hex((uint32_t)(uintptr_t)module_entry_fn);
 		} else {
-			print_string("NO HEADER", vga_attr(THEME_BG, THEME_ERR));
+			print_string("INVALIDA", vga_attr(THEME_BG, THEME_ERR));
 		}
-		newline(C(THEME_TEXT));
-		print_string("  Dump[0..15]: ", C(THEME_MUTED));
-		print_hex_bytes((const uint8_t *)m, 16, C(THEME_TEXT), C(THEME_MUTED));
 		newline(C(THEME_TEXT));
 		// Espera explícita del usuario para ejecutar el módulo
 		print_centered("Pulsa cualquier tecla para ejecutar el modulo", vga_attr(THEME_BG, THEME_ACCENT));
@@ -160,28 +143,20 @@ void kmain(void) {
 		wait_for_keypress();
 		// Ejecutar el módulo (dejamos la pantalla previa visible hasta que el propio módulo limpie)
 		if (module_entry_fn) {
-			// Validación adicional para evitar crash si puntero sale del rango del sector
-			uintptr_t me_addr = (uintptr_t)module_entry_fn;
-			bool inside_sector = me_addr >= (uintptr_t)MODULE_LOAD_ADDRESS && me_addr < (uintptr_t)MODULE_LOAD_ADDRESS + 512;
-			if (!inside_sector) {
-				print_string("  Entry fuera de rango (>=512b): abort", vga_attr(THEME_BG, THEME_ERR));
-				newline(C(THEME_TEXT));
-			} else {
-				print_string("  Entry OK -> ", C(THEME_MUTED));
-				print_hex((uint32_t)(uintptr_t)module_entry_fn);
-				newline(C(THEME_TEXT));
-				uint32_t esp_before = read_esp();
-				print_string("  ESP antes: ", C(THEME_MUTED));
-				print_hex(esp_before);
-				newline(C(THEME_TEXT));
-				module_entry_fn();
-				uint32_t esp_after = read_esp();
-				print_string("  ESP despues: ", C(THEME_MUTED));
-				print_hex(esp_after);
-				newline(C(THEME_TEXT));
-				print_string("  Retorno modulo", vga_attr(THEME_BG, THEME_OK));
-				newline(C(THEME_TEXT));
-			}
+			print_string("  Entry OK -> ", C(THEME_MUTED));
+			print_hex((uint32_t)(uintptr_t)module_entry_fn);
+			newline(C(THEME_TEXT));
+			uint32_t esp_before = read_esp();
+			print_string("  ESP antes: ", C(THEME_MUTED));
+			print_hex(esp_before);
+			newline(C(THEME_TEXT));
+			module_entry_fn();
+			uint32_t esp_after = read_esp();
+			print_string("  ESP despues: ", C(THEME_MUTED));
+			print_hex(esp_after);
+			newline(C(THEME_TEXT));
+			print_string("  Retorno modulo", vga_attr(THEME_BG, THEME_OK));
+			newline(C(THEME_TEXT));
 		} else {
 			print_string("  Entry invalido: no se ejecuta modulo", vga_attr(THEME_BG, THEME_ERR));
 			newline(C(THEME_TEXT));
@@ -215,24 +190,24 @@ void kmain(void) {
 		print_status_checked("Acceso VGA", vga2);
 		newline(C(THEME_TEXT));
 		print_separator('-', vga_attr(THEME_BG, THEME_ACCENT));
-	uint32_t kstart2 = (uint32_t)&_start, kend2 = (uint32_t)&_end;
-	uint32_t ksize2 = kend2 - kstart2;
-	print_string("  PseudoKernel:  ", C(THEME_MUTED));
-	print_hex(kstart2);
-	print_string(" - ", C(THEME_MUTED));
-	print_hex(kend2);
-	print_string(" (", C(THEME_MUTED));
-	print_dec(ksize2);
-	print_string(" bytes)", C(THEME_MUTED));
-	putchar('\n', C(THEME_MUTED));
+		uint32_t kstart2 = (uint32_t)&_start, kend2 = (uint32_t)&_end;
+		uint32_t ksize2 = kend2 - kstart2;
+		print_string("  PseudoKernel:  ", C(THEME_MUTED));
+		print_hex(kstart2);
+		print_string(" - ", C(THEME_MUTED));
+		print_hex(kend2);
+		print_string(" (", C(THEME_MUTED));
+		print_dec(ksize2);
+		print_string(" bytes)", C(THEME_MUTED));
+		putchar('\n', C(THEME_MUTED));
 
-	/* Mostrar ESP real y dirección VGA (no hardcodeado) */
-	print_string("  Stack (ESP):   ", C(THEME_MUTED));
-	print_hex(read_esp());
-	putchar('\n', C(THEME_MUTED));
-	print_string("  VGA:           ", C(THEME_MUTED));
-	print_hex((uint32_t)VGA_ADDRESS);
-	putchar('\n', C(THEME_MUTED));
+		/* Mostrar ESP real y dirección VGA (no hardcodeado) */
+		print_string("  Stack (ESP):   ", C(THEME_MUTED));
+		print_hex(read_esp());
+		putchar('\n', C(THEME_MUTED));
+		print_string("  VGA:           ", C(THEME_MUTED));
+		print_hex((uint32_t)VGA_ADDRESS);
+		putchar('\n', C(THEME_MUTED));
 		newline(C(THEME_TEXT));
 		print_separator('=', sep1);
 		print_centered("Ejecucion exitosa", vga_attr(THEME_BG, THEME_OK));

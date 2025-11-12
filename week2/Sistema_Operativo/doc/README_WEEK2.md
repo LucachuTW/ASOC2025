@@ -15,10 +15,10 @@ Este documento explica qué contiene la carpeta `week2/Sistema_Operativo`, cómo
   - `kernel.h` — definiciones, direcciones importantes (p. ej. `MODULE_LOAD_ADDRESS`), prototipos y macros de color.
 
 - `kernel_post/` (módulo post-boot) // aquí iría el verdadero kernel
-  - `module_header.S` — cabecera del módulo (magic, versión, tamaño, offset de entry).
-  - `module_entry.c` — ejemplo/demo de módulo que se carga en `MODULE_LOAD_ADDRESS` (0x0012000) y se ejecuta desde su offset de entry.
+  - `module_entry.c` — ejemplo/demo de módulo que se enlaza como ELF y se ejecuta desde la `e_entry` del binario.
   - `modlib.c` / `modlib.h` — pequeñas utilidades para módulos (VGA, teclado, formatos) para mantener el módulo independiente del kernel.
-  - `module.ld` — linker script para el módulo, vinculado para ejecutarse en `MODULE_LOAD_ADDRESS`.
+  - `module.ld` — linker script ELF para el módulo, vinculado para ejecutarse en `MODULE_LOAD_ADDRESS`.
+  - `module_header.S` — versión legacy de cabecera plana (se conserva a modo histórico, ya no se usa en la build actual).
 
 - `doc/`
   - `funcionamiento.md` — descripción general (ya existente).
@@ -32,7 +32,7 @@ Este documento explica qué contiene la carpeta `week2/Sistema_Operativo`, cómo
 2. `stage1` carga `stage2` en 0x7E00 (sectores 2-3) y salta a él (hay otra versión del programa donde tiene una especie de sistema de selección de discos, por desgracia no funciona bien del todo porque hay que hardcodear partes).
 3. `stage2` (en modo real 16-bit) carga el kernel (sectores 4+ -> 0x10000). Cuando la carga es correcta, escribe un header verificable en 0x7E00 (word magic + versión + disco + kernel_sects) para que el kernel lo pueda comprobar. Luego habilita A20, carga GDT, cambia a modo protegido y salta a 0x10000.
 4. El pseudokernel (32-bit) arranca en `_start`, inicializa subsistemas y ejecuta `kmain()`.
-5. El kernel realiza chequeos HW, sonda la presencia de un módulo post-boot en el LBA `3 + kernel_sects`, lee su primer sector en `MODULE_LOAD_ADDRESS` para validar magic (`MOD0` o `MBIN`), muestra información y (si el usuario lo consiente) carga/ejecuta el módulo.
+5. El kernel realiza chequeos HW, sonda la presencia de un módulo post-boot en el LBA `3 + kernel_sects`, valida que el primer sector contenga una cabecera ELF32 (`0x7FELF`) y, si el usuario lo consiente, lee todos los sectores del módulo, carga sus segmentos `PT_LOAD` en memoria física y salta a `e_entry`.
 
 ## Formato del header entre stage2 y kernel
 
@@ -47,9 +47,12 @@ El kernel debe verificar `MAGIC == 0x5453` antes de fiarse de los demás campos 
 
 ## Formato de módulo (kernel_post)
 
-- Cabecera soportada: legacy `MOD0` o nuevo `MBIN` (ambos aceptados por `mod0_parse`). De todos modos simplemente busqué que tipo de cosas son las que suelen ser elevantes para mostrar y las puse xd. 
-- Campos típicos en cabecera (ejemplo): magic (4), version (u16), length (u16/u32), entry_off (u32). El kernel valida la cabecera y el offset de entry antes de ejecutar.
-- El módulo se carga (temporalmente) en `MODULE_LOAD_ADDRESS` (definido en `kernel.h` como `0x00012000`).
+- El módulo se construye ahora como ELF32 (little endian) enlazado para x86 (`EM_386`).
+- `module.ld` fija tanto `p_paddr` como `p_vaddr` de los segmentos en torno a `MODULE_LOAD_ADDRESS` para que el pseudokernel pueda copiar directamente con memoria física identidad.
+- El kernel valida la cabecera ELF (`0x7F 'E' 'L' 'F'`), comprueba que `e_phentsize` y `e_phnum` sean coherentes y que la tabla de program headers quede dentro del tamaño real del archivo (`MODULE_SIZE_BYTES`).
+- Durante la carga se recorren los headers `PT_LOAD`: cada uno se copia a la dirección física indicada (se respeta `p_filesz` y se rellena con ceros la zona `p_memsz - p_filesz`).
+- La entrada ejecutable es `e_entry`. Se exige que `e_entry` caiga dentro de uno de los segmentos `PT_LOAD` antes de permitir la ejecución.
+- `module_header.S` y el formato `MOD0/MBIN` permanecen en el repo solo como referencia histórica; la build actual ya no los utiliza.
 
 ## Cómo funciona module_probe y qué es LBA
 
@@ -61,43 +64,37 @@ La detección y validación del módulo post-boot la hace la función `module_pr
 
 - Flujo de `module_probe()` (resumido):
   1. Calcular LBA del módulo: lee `KS_COUNT` desde el header que dejó `stage2` y calcula `mod_lba = 3 + KS_COUNT`.
- 2. Leer el primer sector (probe): realiza una lectura ATA/LBA del `mod_lba` y guarda el sector en un buffer temporal (`g_module_buf`).
- 3. Comprobar magic/cabecera: analiza el buffer buscando los magics soportados (`MOD0`, `MBIN`, etc.). Si no hay magic válido, el probe falla y el kernel sigue sin módulo.
- 4. Parsear campos esenciales: si el magic es válido, extrae versión, longitud (bytes o sectores) y `entry_off` (offset donde está la función de entrada dentro del módulo).
- 5. Validaciones de seguridad:
-    - La lectura tuvo éxito.
-    - `entry_off` está dentro de los límites de la longitud declarada (no se ejecuta fuera del módulo).
-    - La longitud solicitada no excede los límites razonables ni el tamaño de la imagen (esto evita lecturas fuera del fichero / truncado).
- 6. Resultado del probe:
-    - Si alguna validación falla, `module_probe()` devuelve fallo y el kernel informa "no módulo" o "cabecera inválida".
-    - Si todo es válido, el kernel muestra la información del módulo (cabecera, dump parcial) y ofrece al usuario la opción de cargar/ejecutar.
+  2. Leer el primer sector (probe): realiza una lectura ATA/LBA del `mod_lba` y guarda el sector en un buffer temporal (`g_module_probe_sector`).
+  3. Comprobar cabecera ELF: valida `e_ident` (`0x7F 'E' 'L' 'F'`), que sea ELF32 little-endian (`EI_CLASS == 1`, `EI_DATA == 1`), que `e_machine == EM_386`, y que la tabla de program headers tenga un tamaño coherente.
+  4. Si la cabecera no es válida, el probe falla y el kernel muestra "NO" en la UI.
 
 - Carga y ejecución (si se acepta):
-  - `module_finalize_after_bar()` o función equivalente lee los sectores adicionales del módulo (según la longitud leída) desde `mod_lba` a `MODULE_LOAD_ADDRESS` (0x0012000).
-  - Una vez copiado el módulo a memoria, el kernel valida `entry_off` y llama a la función de entrada (por ejemplo saltando a `MODULE_LOAD_ADDRESS + entry_off`).
-  - A la vuelta, el módulo debe haber preservado el estado que el kernel espera (ESP, buffers), y el kernel continúa.
+  - `module_finalize_after_bar()` vuelve a leer todos los sectores declarados para el módulo (`MODULE_SECTORS_COUNT` y `MODULE_SIZE_BYTES` se generan en build) y los copia en RAM temporal.
+  - Recorre cada program header `PT_LOAD` y copia la región `[p_offset, p_offset + p_filesz)` a la dirección física `p_paddr` (o `p_vaddr` si `p_paddr` es cero). Se rellenan con cero los bytes extra hasta `p_memsz`.
+  - Se comprueba que `e_entry` caiga dentro de alguno de los segmentos cargados; solo entonces se marca el módulo como listo (`STAGE2_MODULE_OK = 1`) y se expone la entrada mediante `module_get_entry()`.
+  - Si cualquier paso falla (lectura ATA, cabecera incoherente, `e_entry` fuera de segmento, etc.) se limpian los flags y no se ejecuta el módulo.
 
 - Ejemplos de casos:
-  - Módulo ausente: primer sector no contiene magic → probe falla (salida: "no módulo detectado").
-  - Módulo válido: probe detecta `MBIN` o `MOD0`, parsea longitud y entry_off válidos → se permite cargar y ejecutar.
-  - Módulo corrupto: probe lee datos pero la cabecera está dañada o `entry_off` fuera de rango → probe falla y no se ejecuta nada.
+  - Módulo ausente: primer sector no contiene `0x7FELF` → el probe falla (salida: "NO").
+  - Módulo válido ELF: cabecera correcta y `e_entry` dentro de un `PT_LOAD` → la UI muestra "Cabecera ELF: OK" y ofrece ejecutarlo.
+  - Módulo corrupto o truncado: aunque haya cabecera, si la tabla de program headers cae fuera del tamaño real del archivo o un segmento reclama más bytes de los disponibles, `module_finalize_after_bar()` aborta.
 
 - Riesgos y mitigaciones:
-  - Si `KS_COUNT` es incorrecto, LBA calculado será erróneo → probe leerá basura. Mitigación: validar `KS_COUNT` con checksum en el header.
-  - Si `IMAGE_SIZE` es demasiado pequeño y la imagen fue truncada, el módulo puede estar incompleto. Por eso el Makefile ahora amplía la imagen si el contenido concatenado excede `IMAGE_SIZE`.
-  - Siempre validar `entry_off` y longitud antes de ejecutar para evitar saltos a memoria inválida.
+  - Si `KS_COUNT` es incorrecto, el LBA calculado será erróneo → probe leerá basura. Mitigación: mantener `stage2` y su header sincronizados con el kernel y considerar checksum.
+  - Si `IMAGE_SIZE` es demasiado pequeño y la imagen fue truncada, el módulo puede estar incompleto. Por eso el Makefile amplía automáticamente la imagen si el contenido concatenado excede `IMAGE_SIZE`.
+  - Se valida que `e_entry` caiga dentro de un segmento cargado para evitar saltar a memoria basura.
 
 Dónde mirar en el código:
 - `kernel_boot/kernelfunciones.c` — implementación de `module_probe()`, `module_finalize_after_bar()` y `ata_read28()`.
-- `kernel_boot/kernel.h` — macros como `MODULE_LOAD_ADDRESS` y offsets del header que escribe `stage2`.
+- `kernel_boot/kernel.h` — macros como `MODULE_LOAD_ADDRESS`, `MODULE_SECTORS_COUNT` y offsets del header que escribe `stage2`.
 - `boot/stage2.asm` — escribe el header con `KS_COUNT` (kernel sectors) que `module_probe()` usa para calcular LBA.
-- `kernel_post/` — ejemplo de módulo (`module_header.S`, `module_entry.c`, `modlib.c`) para ver cómo se genera la cabecera esperada.
+- `kernel_post/` — ejemplo de módulo ELF (`module_entry.c`, `modlib.c`, `module.ld`).
 
 ## Direcciones y convenciones importantes
 
 - `stage2` load address: 0x7E00 (ejecución en modo real) — el header se escribe en 0x7E00.
 - `kernel` link/load address: 0x10000 (definido en `linker.ld`).
-- `MODULE_LOAD_ADDRESS`: 0x0012000 — donde se coloca y ejecuta el módulo post-boot.
+- `MODULE_LOAD_ADDRESS`: 0x00120000 — donde se coloca y ejecuta el módulo post-boot.
 - Zona compartida entre stage2 y kernel: `STAGE2_BASE = 0x7E00`. El pseudokernel lee el magic/versión/ks_count desde ahí, es donde debería estar el kernel real.
 
 - De haber errores por solapamiento de código, tocaría mover las direcciones de memoria a otras donde no se lee algo indebido.
@@ -112,7 +109,7 @@ make
 make run   # lanza qemu con os-image.bin
 ```
 
-- `make` genera `stage1.bin` (512B), `stage2.bin` (1024B), compila y empaqueta el kernel (`kernel.bin`) y el módulo (`module_post.bin`) y concatena `os-image.bin`.
+- `make` genera `stage1.bin` (512B), `stage2.bin` (1024B), compila y empaqueta el kernel (`kernel.bin`) y el módulo (`module_post.elf` + `module_post.img`) y concatena `os-image.bin`.
 - `make run` lanza QEMU con `os-image.bin`. El make también hace el cálculo de la posición del kernel, un cambio que si no sería manual.
 
 ## Truncado y ampliación de la imagen
@@ -153,7 +150,7 @@ make IMAGE_SIZE=512k
 - Si el kernel no muestra el header (mensaje "Stage2: no header detectado"), revisa que `stage2.asm` escribió correctamente el magic en 0x7E00 y que la llamada a INT 13h para leer el kernel fue exitosa.
 - Para inspeccionar valores en tiempo de ejecución, puedes modificar `stage2.asm` para imprimir debug (ya hay mensajes tipo `[Stage2]`) o hacer que escriba un pattern reconocible en otra dirección.
 - Si el módulo no se detecta:
-  - Asegúrate de que el `module_post.bin` esté ubicado inmediatamente después del kernel en la imagen (Makefile empaqueta así).
+  - Asegúrate de que el `module_post.img` esté ubicado inmediatamente después del kernel en la imagen (Makefile empaqueta así).
   - `module_probe()` calcula LBA = 3 + kernel_sects; si kernel_sects es incorrecto, el LBA será erróneo.
   - Usa `print` en stage2 para verificar `KS_COUNT` y mensaje de OK tras la lectura.
 
@@ -175,7 +172,8 @@ DISCO (imagen raw) - sectores (ejemplo)
 Sector 1:   stage1 (512 bytes)                 <- MBR / stage1
 Sector 2-3: stage2 (1024 bytes)                <- stage2 (2 sectores)
 Sector 4..N: kernel (KS_COUNT sectores)       <- kernel.bin (padded a múltiplo de 512)
-Sector N+1:  module_post.bin (512 bytes)      <- módulo post-boot (si existe)
+Sector N+1..M: module_post.img (MODULE_SECTORS_COUNT sectores)
+                                             <- módulo post-boot ELF (si existe)
 Resto:      espacio libre (cálculo automático).
 ------------------------------------------------------------
 
@@ -185,7 +183,7 @@ LBA (para lectura por ATA) usado internamente:
 
 ```
 
-Nota: el kernel se carga en 0x10000 y el módulo se coloca temporalmente en `MODULE_LOAD_ADDRESS` = 0x0012000.
+Nota: el kernel se carga en 0x10000 y el módulo se coloca temporalmente en `MODULE_LOAD_ADDRESS` = 0x00120000.
 
 ## Ejemplos de salida del kernel (casos típicos)
 
@@ -197,7 +195,7 @@ Los siguientes ejemplos son salidas simuladas de la UI del kernel (`kmain`) para
                PseudoKernel
       Virus Payal OS Bootloader by Emefedez
 =========================================
-  Modulo opcional: 0x00012000 NO
+  Modulo opcional: 0x00120000 NO
 
   Modo protegido activado  [ OK ]
   Segmentos configurados   [ OK ]
@@ -216,7 +214,7 @@ Los siguientes ejemplos son salidas simuladas de la UI del kernel (`kmain`) para
 =========================================
 ```
 
-Explicación: `module_probe()` no encontró magic `MOD0/MBIN` en el LBA esperado. El kernel informa que no hay módulo y continúa.
+Explicación: `module_probe()` no encontró cabecera ELF válida (`0x7FELF`) en el LBA esperado. El kernel informa que no hay módulo y continúa.
 
 2) Arranque con módulo válido (sondeado y ejecutable)
 
@@ -224,12 +222,11 @@ Explicación: `module_probe()` no encontró magic `MOD0/MBIN` en el LBA esperado
                PseudoKernel
       Virus Payal OS Bootloader by Emefedez
 =========================================
-  Modulo opcional: 0x00012000 SONDEADO [ OK ]
+  Modulo opcional: 0x00120000 SONDEADO [ OK ]
   [---====------] (barra de progreso)
   Copia modulo: OK
   -- Detalles modulo --
-  Cabecera: OK ver=1 len=1024 entry_off=64 (valido)
-  Dump[0..15]: 4D 42 49 4E 01 00 00 04 ...
+  Cabecera ELF: OK entry=0x00120000
 
   (Pulsa cualquier tecla para ejecutar el modulo)
 
@@ -241,11 +238,11 @@ Explicación: `module_probe()` no encontró magic `MOD0/MBIN` en el LBA esperado
   [Modulo finalizado - 3s]
 
   PseudoKernel
-  Modulo opcional:     0x00012000 CARGADO
+  Modulo opcional:     0x00120000 CARGADO
   ... (resto de info) ...
 ```
 
-Explicación: `module_probe()` detectó magic (`MBIN`/`MOD0`), `module_finalize_after_bar()` cargó sectores adicionales según la cabecera y el kernel puede ejecutar la función `entry` dentro del módulo.
+Explicación: `module_probe()` detectó una cabecera ELF válida, `module_finalize_after_bar()` cargó los segmentos `PT_LOAD` y el kernel puede ejecutar la `e_entry` del módulo.
 
 3) Arranque con módulo presente pero corrupto/inválido
 
@@ -253,7 +250,7 @@ Explicación: `module_probe()` detectó magic (`MBIN`/`MOD0`), `module_finalize_
                PseudoKernel
       Virus Payal OS Bootloader by Emefedez
 =========================================
-  Modulo opcional: 0x00012000 SONDEADO
+  Modulo opcional: 0x00120000 SONDEADO
   Copia modulo: FALLO
   -- Detalles modulo --
   Cabecera: NO HEADER
@@ -264,7 +261,7 @@ Explicación: `module_probe()` detectó magic (`MBIN`/`MOD0`), `module_finalize_
   [Modulo finalizado - 3s]
 
   PseudoKernel
-  Modulo opcional:     0x00012000 (carga incompleta)
+  Modulo opcional:     0x00120000 (carga incompleta)
   ... (resto de info) ...
 ```
 

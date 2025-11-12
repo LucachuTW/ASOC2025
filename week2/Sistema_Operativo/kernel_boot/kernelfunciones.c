@@ -139,20 +139,6 @@ void print_hex_bytes(const uint8_t* p, int n, unsigned char attr_hex, unsigned c
     }
 }
 
-bool mod0_parse(const volatile unsigned char* m, uint16_t* out_version, uint16_t* out_length, uint32_t* out_entry_off) {
-    // Aceptar cabeceras con magic "MOD0" (legacy) o "MBIN" (nuevo estándar)
-    bool legacy = (m[0]=='M' && m[1]=='O' && m[2]=='D' && m[3]=='0');
-    bool mbin   = (m[0]=='M' && m[1]=='B' && m[2]=='I' && m[3]=='N');
-    if (!(legacy || mbin)) return false;
-    uint16_t ver = (uint16_t)m[4] | ((uint16_t)m[5] << 8);
-    uint16_t len = (uint16_t)m[6] | ((uint16_t)m[7] << 8);
-    uint32_t ent = ((uint32_t)m[8]) | ((uint32_t)m[9] << 8) | ((uint32_t)m[10] << 16) | ((uint32_t)m[11] << 24);
-    if (out_version) *out_version = ver;
-    if (out_length) *out_length = len;
-    if (out_entry_off) *out_entry_off = ent;
-    return true;
-}
-
 // =================== MÓDULO OPCIONAL ===================
 bool detect_optional_module(void) {
     volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
@@ -174,7 +160,24 @@ void show_module_status(void) {
     char sbuf[3]; sbuf[0] = (ksects/10)? ('0'+ (ksects/10)) : '0'; sbuf[1] = '0'+ (ksects%10); sbuf[2] = 0;
     print_kv("Sectores kernel:", sbuf, vga_attr(THEME_BG, THEME_MUTED), vga_attr(THEME_BG, THEME_TEXT));
     print_kv("Modulo opcional:", mod ? "CARGADO" : "NO", vga_attr(THEME_BG, THEME_MUTED), mod ? vga_attr(THEME_BG, THEME_OK) : vga_attr(THEME_BG, THEME_ERR));
-    if (mod) print_kv("Sectores modulo:", msects==1?"1":"?", vga_attr(THEME_BG, THEME_MUTED), vga_attr(THEME_BG, THEME_TEXT));
+    if (mod) {
+        char mbuf[4];
+        int idx = 0;
+        uint8_t tmp = msects;
+        if (tmp == 0) {
+            mbuf[idx++] = '0';
+        } else {
+            char rev[3];
+            int ridx = 0;
+            while (tmp > 0 && ridx < 3) {
+                rev[ridx++] = (char)('0' + (tmp % 10));
+                tmp /= 10;
+            }
+            while (ridx > 0) mbuf[idx++] = rev[--ridx];
+        }
+        mbuf[idx] = 0;
+        print_kv("Sectores modulo:", mbuf, vga_attr(THEME_BG, THEME_MUTED), vga_attr(THEME_BG, THEME_TEXT));
+    }
 }
 
 // =================== COUNTDOWN ===================
@@ -362,73 +365,111 @@ int ata_read28(uint32_t lba, void* dst) {
     return 0;
 }
 
-bool load_kernel_post(void) {
-    // LBA del kernel en la imagen: 3 (después de stage1 y stage2)
-    // IMPORTANTE: usar el recuento real de sectores cargados por stage2 (excluye .bss),
-    // ya que &_end - &_start incluye .bss y puede desincronizarse con el tamaño en disco.
-    volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
-    uint32_t ksects = *(volatile uint8_t*)STAGE2_KERNEL_SECTS; // KERNEL_SECTS establecido por stage2.asm (header)
-    uint32_t module_lba = 3 + ksects;
-    if (ata_read28(module_lba, (void*)MODULE_LOAD_ADDRESS) == 0) {
-        // Validar magic aceptado
-        volatile char* m = (volatile char*)MODULE_LOAD_ADDRESS;
-        bool ok = ((m[0]=='M' && m[1]=='O' && m[2]=='D' && m[3]=='0') || (m[0]=='M' && m[1]=='B' && m[2]=='I' && m[3]=='N'));
-        if (ok) {
-            *(volatile uint8_t*)STAGE2_MODULE_OK = 1; // MODULE_OK
-            *(volatile uint8_t*)STAGE2_MODULE_SECTS = 1; // MODULE_SECTS (1 sector)
-            return true;
-        } else {
-            // No hay módulo válido
-            *(volatile uint8_t*)STAGE2_MODULE_OK = 0; *(volatile uint8_t*)STAGE2_MODULE_SECTS = 0;
-            return false;
-        }
-    }
-    return false;
+#if MODULE_SECTORS_COUNT > 0
+static uint8_t g_module_image[MODULE_SECTORS_COUNT * 512];
+#else
+static uint8_t g_module_image[512];
+#endif
+static uint8_t g_module_probe_sector[512];
+static uintptr_t g_module_entry_point = 0;
+
+static void bytes_copy(uint8_t* dst, const uint8_t* src, uint32_t len) {
+    for (uint32_t i = 0; i < len; ++i) dst[i] = src[i];
 }
 
-// ======= Sonda y finalización de módulo para UI =======
-static uint8_t g_module_buf[512];
+static void bytes_zero(uint8_t* dst, uint32_t len) {
+    for (uint32_t i = 0; i < len; ++i) dst[i] = 0;
+}
 
 bool module_probe(void) {
-    // Calcular LBA del módulo igual que load_kernel_post, pero sin efectos secundarios.
-    // Usar KERNEL_SECTS reportado por stage2 para evitar incluir .bss en el cómputo.
-    volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
+    if (MODULE_SECTORS_COUNT == 0) return false;
     uint32_t ksects = *(volatile uint8_t*)STAGE2_KERNEL_SECTS;
     uint32_t module_lba = 3 + ksects;
-    if (ata_read28(module_lba, (void*)g_module_buf) != 0) return false;
-    bool legacy = (g_module_buf[0]=='M' && g_module_buf[1]=='O' && g_module_buf[2]=='D' && g_module_buf[3]=='0');
-    bool mbin   = (g_module_buf[0]=='M' && g_module_buf[1]=='B' && g_module_buf[2]=='I' && g_module_buf[3]=='N');
-    return legacy || mbin;
+    if (ata_read28(module_lba, (void*)g_module_probe_sector) != 0) return false;
+    const Elf32_Ehdr* eh = (const Elf32_Ehdr*)g_module_probe_sector;
+    if (eh->e_ident[0] != 0x7F || eh->e_ident[1] != 'E' || eh->e_ident[2] != 'L' || eh->e_ident[3] != 'F') return false;
+    if (eh->e_ident[4] != 1 || eh->e_ident[5] != 1) return false; // ELF32, little endian
+    if (eh->e_machine != 3) return false;                         // EM_386
+    if (eh->e_phentsize != sizeof(Elf32_Phdr) || eh->e_phnum == 0) return false;
+    return true;
 }
 
 bool module_finalize_after_bar(void) {
-    // Copiar buffer sondeado a la dirección final y, si el header indica más tamaño,
-    // leer sectores adicionales desde disco.
-    uint8_t* dst = (uint8_t*)MODULE_LOAD_ADDRESS;
-    for (int i = 0; i < 512; ++i) dst[i] = g_module_buf[i];
+    if (MODULE_SECTORS_COUNT == 0) {
+        g_module_entry_point = 0;
+        return false;
+    }
 
-    // Parsear cabecera para conocer longitud total
-    uint16_t ver=0, length_field=0; uint32_t entry_off=0;
-    bool header_ok = mod0_parse((const volatile unsigned char*)dst, &ver, &length_field, &entry_off);
-    // Longitud mínima segura: al menos 512 si no hay header válido
-    uint32_t total_len = header_ok ? (uint32_t)length_field : 512u;
-    if (total_len < 512u) total_len = 512u; // redondeo defensivo
-    uint32_t sectors_needed = (total_len + 511u) / 512u;
-
-    // Calcular LBA base del módulo
-    volatile uint8_t* status = (volatile uint8_t*)STAGE2_BASE;
     uint32_t ksects = *(volatile uint8_t*)STAGE2_KERNEL_SECTS;
     uint32_t module_lba = 3 + ksects;
-
-    // Leer los sectores restantes (ya tenemos el primero)
-    uint32_t loaded = 1;
-    for (uint32_t s = 1; s < sectors_needed; ++s) {
-        if (ata_read28(module_lba + s, (void*)(MODULE_LOAD_ADDRESS + s*512)) != 0) {
-            break; // parar ante fallo de E/S
+    uint32_t sectors_loaded = 0;
+    for (uint32_t s = 0; s < MODULE_SECTORS_COUNT; ++s) {
+        if (ata_read28(module_lba + s, (void*)(g_module_image + s * 512u)) != 0) {
+            break;
         }
-        loaded++;
+        sectors_loaded++;
     }
-    *(volatile uint8_t*)STAGE2_MODULE_OK = (loaded==sectors_needed) ? 1 : 1; // marcar como presente aunque incompleto
-    *(volatile uint8_t*)STAGE2_MODULE_SECTS = (uint8_t)loaded;
-    return loaded >= 1;
+
+    if (sectors_loaded < MODULE_SECTORS_COUNT) {
+        *(volatile uint8_t*)STAGE2_MODULE_OK = 0;
+        *(volatile uint8_t*)STAGE2_MODULE_SECTS = (uint8_t)sectors_loaded;
+        g_module_entry_point = 0;
+        return false;
+    }
+
+    const Elf32_Ehdr* eh = (const Elf32_Ehdr*)g_module_image;
+    if (eh->e_ident[0] != 0x7F || eh->e_ident[1] != 'E' || eh->e_ident[2] != 'L' || eh->e_ident[3] != 'F') {
+        *(volatile uint8_t*)STAGE2_MODULE_OK = 0;
+        g_module_entry_point = 0;
+        return false;
+    }
+    if (eh->e_ident[4] != 1 || eh->e_ident[5] != 1 || eh->e_machine != 3) {
+        *(volatile uint8_t*)STAGE2_MODULE_OK = 0;
+        g_module_entry_point = 0;
+        return false;
+    }
+    if (eh->e_phentsize != sizeof(Elf32_Phdr) || eh->e_phnum == 0) {
+        *(volatile uint8_t*)STAGE2_MODULE_OK = 0;
+        g_module_entry_point = 0;
+        return false;
+    }
+    uint32_t ph_table_bytes = (uint32_t)eh->e_phnum * (uint32_t)eh->e_phentsize;
+    if (eh->e_phoff + ph_table_bytes > MODULE_SIZE_BYTES) {
+        *(volatile uint8_t*)STAGE2_MODULE_OK = 0;
+        g_module_entry_point = 0;
+        return false;
+    }
+
+    const uint8_t* file_bytes = g_module_image;
+    const Elf32_Phdr* ph = (const Elf32_Phdr*)(file_bytes + eh->e_phoff);
+    bool entry_resides_in_segment = false;
+    for (uint16_t i = 0; i < eh->e_phnum; ++i, ++ph) {
+        if (ph->p_type != PT_LOAD) continue;
+        if (ph->p_offset + ph->p_filesz > MODULE_SIZE_BYTES) {
+            *(volatile uint8_t*)STAGE2_MODULE_OK = 0;
+            g_module_entry_point = 0;
+            return false;
+        }
+        uint8_t* dest = (uint8_t*)(uintptr_t)(ph->p_paddr ? ph->p_paddr : ph->p_vaddr);
+        const uint8_t* src = file_bytes + ph->p_offset;
+        if (ph->p_filesz > 0) bytes_copy(dest, src, ph->p_filesz);
+        if (ph->p_memsz > ph->p_filesz) bytes_zero(dest + ph->p_filesz, ph->p_memsz - ph->p_filesz);
+        uintptr_t seg_start = (uintptr_t)dest;
+        uintptr_t seg_end = seg_start + ph->p_memsz;
+        if (ph->p_memsz > 0 && eh->e_entry >= seg_start && eh->e_entry < seg_end) entry_resides_in_segment = true;
+    }
+
+    g_module_entry_point = eh->e_entry;
+    if (!entry_resides_in_segment) {
+        *(volatile uint8_t*)STAGE2_MODULE_OK = 0;
+        g_module_entry_point = 0;
+        return false;
+    }
+    *(volatile uint8_t*)STAGE2_MODULE_OK = 1;
+    *(volatile uint8_t*)STAGE2_MODULE_SECTS = (uint8_t)MODULE_SECTORS_COUNT;
+    return true;
+}
+
+void* module_get_entry(void) {
+    return (void*)g_module_entry_point;
 }

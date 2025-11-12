@@ -9,6 +9,9 @@
 #define NULL ((void*)0)
 #endif
 
+#include "module_info.h"
+#include "elf.h"
+
 // =================== VIDEO VGA ===================
 #define VGA_ADDRESS 0xB8000
 #define VGA_WIDTH 80
@@ -84,10 +87,10 @@ bool wait_for_keypress(void);
 void kbd_flush(void);
 bool detect_optional_module(void);
 void show_module_status(void);
-bool load_kernel_post(void); // Carga 1 sector de módulo post y actualiza flags
 // Sonda previa del módulo (lee a buffer interno y valida magic). Finalizar copia tras barra.
 bool module_probe(void);
 bool module_finalize_after_bar(void);
+void* module_get_entry(void);
 
 // ATA PIO mínimo (28-bit LBA, 1 sector)
 int ata_read28(uint32_t lba, void* dst);
@@ -95,8 +98,6 @@ int ata_read28(uint32_t lba, void* dst);
 // =================== UTILIDADES DE FORMATO/ANALISIS ===================
 // Imprime n bytes en hexadecimal (dos dígitos) separados por espacio
 void print_hex_bytes(const uint8_t* p, int n, unsigned char attr_hex, unsigned char attr_sep);
-// Parsea cabecera MOD0 en memoria. Devuelve true si magic es "MOD0" y rellena campos.
-bool mod0_parse(const volatile unsigned char* m, uint16_t* out_version, uint16_t* out_length, uint32_t* out_entry_off);
 
 // =================== COMPROBACIONES HW ===================
 bool check_protected_mode(void);
@@ -123,7 +124,7 @@ uint32_t read_esp(void);
 #define STAGE2_MODULE_SECTS  (STAGE2_BASE + 6)
 
 // Dirección donde stage2 intenta cargar módulo opcional
-#define MODULE_LOAD_ADDRESS  0x00012000
+#define MODULE_LOAD_ADDRESS  0x00120000
 
 // =================== INLINES ===================
 static inline unsigned char vga_attr(unsigned char bg, unsigned char fg) { return VGA_COLOR(bg, fg); }

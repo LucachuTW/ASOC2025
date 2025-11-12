@@ -45,29 +45,27 @@ El sistema se compone de varios segmentos y archivos que trabajan juntos para ar
   - `kernel.h`: definiciones, colores, prototipos.
 - **Flujo:**
   1. Muestra banner y estado HW.
-  2. Sonda el módulo opcional y dibuja barra de progreso.
-  3. Si hay módulo, lo valida, muestra cabecera y dump de bytes.
-  4. Espera tecla y ejecuta el módulo (saltando a su entry).
+  2. Sonda el módulo opcional, dibuja barra de progreso y lee el primer sector.
+  3. Si la cabecera es ELF válida, carga todos los sectores declarados, copia los segmentos `PT_LOAD` y prepara la entrada.
+  4. Espera tecla y ejecuta el módulo (saltando a `e_entry`).
   5. Al volver, muestra estado final y espera.
 - **Validaciones:**
-  - Verifica si es un módulo "limpio".
-  - Carga todos los sectores necesarios según el campo `length` de la cabecera.
+  - Comprueba cabecera ELF (`0x7FELF`, `EM_386`, tamaños coherentes).
+  - Se asegura de que `e_entry` caiga dentro de un segmento cargado antes de saltar.
 
 ---
 
 ## 4. `kernel_post/` (Módulos post-boot, la idea es poner aquí el kernel de verdad)
 - **Estructura:**
-  - `module_header.S`: cabecera del módulo (magic, versión, tamaño, entry).
   - `module_entry.c`: lógica principal del módulo (demo, diagnóstico, UI).
   - `modlib.c`/`modlib.h`: utilidades para el módulo (VGA, formato, teclado).
-  - `module.ld`: script de linker, define dirección de carga y símbolos de tamaño.
-- **Formato de cabecera:**
-  - Magic: "MBIN" (o "MOD0" para legacy)
-  - Version: u16
-  - Length: u16 (bytes totales del binario)
-  - Entry_off: u32 (offset relativo al inicio)
+  - `module.ld`: script de linker ELF, define dirección de carga y símbolos de tamaño.
+  - `module_header.S`: versión legacy del formato plano (`MBIN`/`MOD0`).
+- **Formato:**
+  - ELF32 (`EM_386`, little endian) con segmentos `PT_LOAD` apuntando a `0x00120000`.
+  - La entrada del módulo es `e_entry` (exportada por el linker).
 - **Funcionamiento:**
-  - El kernel carga el módulo en 0x12000 y salta a la función de entrada.
+  - El kernel copia los segmentos `PT_LOAD` en `0x00120000` y salta a `e_entry` tras validar la cabecera.
   - El módulo puede limpiar pantalla, mostrar info, esperar tecla y devolver el control.
 
 ---

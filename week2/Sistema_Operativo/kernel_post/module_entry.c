@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include "modlib.h"
 
-#define MOD_BASE ((volatile uint8_t*)0x00012000)
+#define MOD_BASE ((volatile uint8_t*)0x00120000)
 #define VGA_BASE 0x000B8000
 
 void module_entry(void){

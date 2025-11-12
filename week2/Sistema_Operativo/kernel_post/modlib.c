@@ -1,5 +1,5 @@
 #include "modlib.h"
-#include "kernel.h" //me arregla el bool
+#include <stdbool.h>
 
 void cls(uint8_t attr){
     uint16_t fill = ((uint16_t)attr<<8) | ' ';
