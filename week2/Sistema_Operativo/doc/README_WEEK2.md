@@ -72,6 +72,15 @@ La detección y validación del módulo post-boot la hace la función `module_pr
   - `module_finalize_after_bar()` vuelve a leer todos los sectores declarados para el módulo (`MODULE_SECTORS_COUNT` y `MODULE_SIZE_BYTES` se generan en build) y los copia en RAM temporal.
   - Recorre cada program header `PT_LOAD` y copia la región `[p_offset, p_offset + p_filesz)` a la dirección física `p_paddr` (o `p_vaddr` si `p_paddr` es cero). Se rellenan con cero los bytes extra hasta `p_memsz`.
   - Se comprueba que `e_entry` caiga dentro de alguno de los segmentos cargados; solo entonces se marca el módulo como listo (`STAGE2_MODULE_OK = 1`) y se expone la entrada mediante `module_get_entry()`.
+
+### Internals: program headers, p_paddr/p_vaddr y e_entry (explicación sencilla)
+
+- ELF contiene una cabecera `Elf32_Ehdr` con `e_entry` y una tabla de `Elf32_Phdr` que describe segmentos.
+- Campos clave: `p_offset` (offset en fichero), `p_filesz`/`p_memsz` (tamaño en fichero y memoria), `p_vaddr`/`p_paddr` (dónde colocarlo), `p_type` (`PT_LOAD` para segmentos a cargar).
+- El kernel lee cada `PT_LOAD`, hace memcpy de `p_filesz` bytes desde `p_offset` al destino `p_paddr` (o `p_vaddr`) y rellena con ceros `p_memsz - p_filesz` (bss).
+- `e_entry` debe caer dentro de uno de estos segmentos; si lo hace, el loader confía en `e_entry` y salta a esa dirección para ejecutar el módulo.
+
+Explicación simple: el ELF te dice "copia X bytes desde el fichero a esta dirección física y luego salta a Y"; el kernel valida que Y está dentro de los datos cargados para evitar saltos a memoria aleatoria.
   - Si cualquier paso falla (lectura ATA, cabecera incoherente, `e_entry` fuera de segmento, etc.) se limpian los flags y no se ejecuta el módulo.
 
 - Ejemplos de casos:
@@ -94,7 +103,7 @@ Dónde mirar en el código:
 
 - `stage2` load address: 0x7E00 (ejecución en modo real) — el header se escribe en 0x7E00.
 - `kernel` link/load address: 0x10000 (definido en `linker.ld`).
-- `MODULE_LOAD_ADDRESS`: 0x00120000 — donde se coloca y ejecuta el módulo post-boot.
+-- `MODULE_LOAD_ADDRESS`: dirección configurable (por defecto `0x00120000`) — donde se coloca y ejecuta el módulo post-boot. Se puede cambiar con `make MODULE_LOAD_ADDRESS=0x00200000`.
 - Zona compartida entre stage2 y kernel: `STAGE2_BASE = 0x7E00`. El pseudokernel lee el magic/versión/ks_count desde ahí, es donde debería estar el kernel real.
 
 - De haber errores por solapamiento de código, tocaría mover las direcciones de memoria a otras donde no se lee algo indebido.
@@ -183,7 +192,7 @@ LBA (para lectura por ATA) usado internamente:
 
 ```
 
-Nota: el kernel se carga en 0x10000 y el módulo se coloca temporalmente en `MODULE_LOAD_ADDRESS` = 0x00120000.
+Nota: el kernel se carga en 0x10000 y el módulo se coloca temporalmente en `MODULE_LOAD_ADDRESS` (por defecto `0x00120000`, configurable con `make MODULE_LOAD_ADDRESS=0x...`).
 
 ## Ejemplos de salida del kernel (casos típicos)
 
@@ -195,7 +204,7 @@ Los siguientes ejemplos son salidas simuladas de la UI del kernel (`kmain`) para
                PseudoKernel
       Virus Payal OS Bootloader by Emefedez
 =========================================
-  Modulo opcional: 0x00120000 NO
+  Modulo opcional: MODULE_LOAD_ADDRESS NO
 
   Modo protegido activado  [ OK ]
   Segmentos configurados   [ OK ]
@@ -222,11 +231,11 @@ Explicación: `module_probe()` no encontró cabecera ELF válida (`0x7FELF`) en 
                PseudoKernel
       Virus Payal OS Bootloader by Emefedez
 =========================================
-  Modulo opcional: 0x00120000 SONDEADO [ OK ]
+  Modulo opcional: MODULE_LOAD_ADDRESS SONDEADO [ OK ]
   [---====------] (barra de progreso)
   Copia modulo: OK
   -- Detalles modulo --
-  Cabecera ELF: OK entry=0x00120000
+  Cabecera ELF: OK entry=MODULE_LOAD_ADDRESS
 
   (Pulsa cualquier tecla para ejecutar el modulo)
 
@@ -238,7 +247,7 @@ Explicación: `module_probe()` no encontró cabecera ELF válida (`0x7FELF`) en 
   [Modulo finalizado - 3s]
 
   PseudoKernel
-  Modulo opcional:     0x00120000 CARGADO
+  Modulo opcional:     MODULE_LOAD_ADDRESS CARGADO
   ... (resto de info) ...
 ```
 
@@ -250,7 +259,7 @@ Explicación: `module_probe()` detectó una cabecera ELF válida, `module_finali
                PseudoKernel
       Virus Payal OS Bootloader by Emefedez
 =========================================
-  Modulo opcional: 0x00120000 SONDEADO
+  Modulo opcional: MODULE_LOAD_ADDRESS SONDEADO
   Copia modulo: FALLO
   -- Detalles modulo --
   Cabecera: NO HEADER
@@ -261,7 +270,7 @@ Explicación: `module_probe()` detectó una cabecera ELF válida, `module_finali
   [Modulo finalizado - 3s]
 
   PseudoKernel
-  Modulo opcional:     0x00120000 (carga incompleta)
+  Modulo opcional:     MODULE_LOAD_ADDRESS (carga incompleta)
   ... (resto de info) ...
 ```
 

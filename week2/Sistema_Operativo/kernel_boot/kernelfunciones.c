@@ -1,4 +1,5 @@
 #include "kernel.h"
+#include "module_info.h"   /* contiene MODULE_SIZE_BYTES, MODULE_SECTORS_COUNT, MODULE_LOAD_ADDRESS */
 
 // Archivo que agrupa las funciones auxiliares del pseudokernel.
 // Mantiene kernel.c centrado en kmain.

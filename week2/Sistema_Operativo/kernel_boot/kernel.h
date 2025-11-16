@@ -124,7 +124,14 @@ uint32_t read_esp(void);
 #define STAGE2_MODULE_SECTS  (STAGE2_BASE + 6)
 
 // Dirección donde stage2 intenta cargar módulo opcional
+// Si `kernel_boot/module_info.h` (generado por Makefile) define `MODULE_LOAD_ADDRESS`,
+// lo usamos. Si no existe, dejamos un valor por defecto para desarrollo.
+#ifndef MODULE_LOAD_ADDRESS
+/*  0x00120000; sin embargo, el Makefile permite cambiar esta
+	variable al compilar (p. ej. `make MODULE_LOAD_ADDRESS=0x00200000`). Si quieres
+	estar aún más seguro contra colisiones con BIOS/VGA, usa una dirección >1MB. */
 #define MODULE_LOAD_ADDRESS  0x00120000
+#endif
 
 // =================== INLINES ===================
 static inline unsigned char vga_attr(unsigned char bg, unsigned char fg) { return VGA_COLOR(bg, fg); }

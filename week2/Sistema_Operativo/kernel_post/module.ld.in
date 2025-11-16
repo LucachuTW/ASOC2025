@@ -2,8 +2,8 @@ OUTPUT_FORMAT(elf32-i386)
 ENTRY(module_entry)
 
 SECTIONS {
-  /* El módulo se vincula para ejecutarse en 0x202000 (sustituido por Makefile) */
-  . = 0x202000;
+  /* El módulo se vincula para ejecutarse en __MODULE_LOAD_ADDRESS__ (sustituido por Makefile) */
+  . = __MODULE_LOAD_ADDRESS__;
 
   .text : { *(.text*) }
   .rodata : { *(.rodata*) }
@@ -12,5 +12,5 @@ SECTIONS {
   /DISCARD/ : { *(.eh_frame) *(.comment) }
 
   __module_end = .;
-  __module_size = __module_end - 0x202000;
+  __module_size = __module_end - __MODULE_LOAD_ADDRESS__;
 }

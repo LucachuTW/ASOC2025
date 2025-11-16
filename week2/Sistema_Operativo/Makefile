@@ -10,11 +10,16 @@ ASMFLAGS = -f bin
 # Tamaño por defecto de la imagen (puedes sobrescribir con `make IMAGE_SIZE=10M`)
 IMAGE_SIZE ?= 1440k
 
+# Dirección por defecto donde se carga el módulo (puedes sobrescribir con `make MODULE_LOAD_ADDRESS=0x00110000`)
+DEFAULT_MODULE_LOAD_ADDRESS ?= 0x00190000
+# Si el usuario no pasa MODULE_LOAD_ADDRESS, usamos DEFAULT_MODULE_LOAD_ADDRESS.
+MODULE_LOAD_ADDRESS ?= $(DEFAULT_MODULE_LOAD_ADDRESS)
+
 # Convertidor portable de sufijos (k, M, G, T) a bytes.
 # Se reutiliza en las recetas para no repetir el awk largo.
 AWK_TO_BYTES = awk -v s="$(IMAGE_SIZE)" 'BEGIN{if(s==""){print 0;exit} l=tolower(substr(s,length(s),1)); if(l=="k"){n=substr(s,1,length(s)-1);print int(n*1024)} else if(l=="m"){n=substr(s,1,length(s)-1);print int(n*1024*1024)} else if(l=="g"){n=substr(s,1,length(s)-1);print int(n*1024*1024*1024)} else if(l=="t"){n=substr(s,1,length(s)-1);print int(n*1024*1024*1024*1024)} else {print int(s)} }'
 
-.PHONY: all clean run test-stage1 test-stage2 info debug
+.PHONY: all clean run test-stage1 test-stage2 info debug full
 
 all: os-image.bin
 
@@ -27,20 +32,12 @@ stage1.bin: boot/stage1.asm
 		exit 1; \
 	fi
 
-# === KERNEL ===
-start.o: kernel_boot/start.S
-	$(CC) $(CFLAGS) -c kernel_boot/start.S -o start.o
-
-kernel_deps = kernel_boot/kernel.c kernel_boot/kernel.h kernel_boot/kernelfunciones.c kernel_boot/module_info.h kernel_boot/elf.h
-
-kernel.o: $(kernel_deps)
-	$(CC) $(CFLAGS) -c kernel_boot/kernel.c -o kernel.o
-
-kernelfunciones.o: kernel_boot/kernelfunciones.c kernel_boot/kernel.h kernel_boot/module_info.h kernel_boot/elf.h
-	$(CC) $(CFLAGS) -c kernel_boot/kernelfunciones.c -o kernelfunciones.o
 
 kernel.elf: start.o kernel.o kernelfunciones.o linker.ld
 	$(LD) $(LDFLAGS) -o kernel.elf start.o kernel.o kernelfunciones.o
+
+start.o: kernel_boot/start.S
+	$(CC) $(CFLAGS) -c kernel_boot/start.S -o start.o
 
 kernel.bin: kernel.elf
 	$(OBJCOPY) -O binary kernel.elf kernel.bin
@@ -74,13 +71,34 @@ kernel_padded.bin: kernel.bin kernel_sects.inc
 
 # === IMAGEN FINAL DEL DISCO ===
 # === MÓDULO POST (C + header ASM, 32-bit) ===
-module_entry.o: kernel_post/module_entry.c
-	$(CC) $(CFLAGS) -c kernel_post/module_entry.c -o module_entry.o
+module_entry.o: kernel_post/module_entry.c kernel_padded.bin
+	@# Calcular una dirección segura si la variable no fue modificada por el usuario
+	@addr="$(MODULE_LOAD_ADDRESS)"; \
+	if [ "$$addr" = "$(DEFAULT_MODULE_LOAD_ADDRESS)" ]; then \
+		size=$$(stat -f%z kernel_padded.bin 2>/dev/null || stat -c%s kernel_padded.bin); \
+		pages=$$(( ( $$size + 4095 ) / 4096 )); \
+		base=$$(( 0x200000 + $$pages * 4096 )); \
+		addr=$$(printf '0x%06x' $$base); \
+		echo "Auto-selected MODULE_LOAD_ADDRESS=$$addr (kernel size=$$size, pages=$$pages)"; \
+	fi; \
+	$(CC) $(CFLAGS) -DMODULE_LOAD_ADDRESS=$$addr -c kernel_post/module_entry.c -o module_entry.o
 
 modlib.o: kernel_post/modlib.c kernel_post/modlib.h
 	$(CC) $(CFLAGS) -c kernel_post/modlib.c -o modlib.o
 
-module_post.elf: module_entry.o modlib.o kernel_post/module.ld
+
+
+module_post.elf: module_entry.o modlib.o kernel_padded.bin kernel_post/module.ld.in
+	@# Generar linker script para el módulo con la dirección deseada (recalcular si usó default)
+	@mkdir -p kernel_post
+	@addr="$(MODULE_LOAD_ADDRESS)"; \
+	if [ "$$addr" = "$(DEFAULT_MODULE_LOAD_ADDRESS)" ]; then \
+		size=$$(stat -f%z kernel_padded.bin 2>/dev/null || stat -c%s kernel_padded.bin); \
+		pages=$$(( ( $$size + 4095 ) / 4096 )); \
+		base=$$(( 0x200000 + $$pages * 4096 )); \
+		addr=$$(printf '0x%06x' $$base); \
+	fi; \
+	awk -v addr="$$addr" '{gsub(/__MODULE_LOAD_ADDRESS__/, addr); print}' kernel_post/module.ld.in > kernel_post/module.ld
 	$(LD) -m elf_i386 -T kernel_post/module.ld -nostdlib -o module_post.elf module_entry.o modlib.o
 	@echo "Modulo ELF: $$(stat -f%z module_post.elf 2>/dev/null || stat -c%s module_post.elf) bytes"
 
@@ -90,15 +108,17 @@ module_post.img: module_post.elf
 	cp module_post.elf module_post.img; \
 	truncate -s $$((sectors * 512)) module_post.img; \
 	echo "Modulo ELF padded: $$size bytes -> $$sectors sectores"; \
-	echo "#ifndef MODULE_INFO_H" > kernel_boot/module_info.h; \
-	echo "#define MODULE_INFO_H" >> kernel_boot/module_info.h; \
-	echo "#define MODULE_SIZE_BYTES $$size" >> kernel_boot/module_info.h; \
-	echo "#define MODULE_SECTORS_COUNT $$sectors" >> kernel_boot/module_info.h; \
-	echo "#endif" >> kernel_boot/module_info.h
+	mkdir -p kernel_boot; \
+	# module_post.img no escribe module_info.h (delega en kernel_boot/module_info.h)
 
-kernel_boot/module_info.h: module_post.img
-	@true
+kernel_boot/module_info.h:
+	@./scripts/generate_module_info.sh $(MODULE_LOAD_ADDRESS)
 
+# Asegurar que module_info.h se genera antes de compilar objetos que la incluyen
+kernel.o: kernel_boot/kernel.c kernel_boot/kernel.h kernel_boot/module_info.h
+	$(CC) $(CFLAGS) -c kernel_boot/kernel.c -o kernel.o
+kernelfunciones.o: kernel_boot/kernelfunciones.c kernel_boot/kernel.h kernel_boot/module_info.h
+	$(CC) $(CFLAGS) -c kernel_boot/kernelfunciones.c -o kernelfunciones.o
 
 # === TRUNCAMOS POR SEGURIDAD, PERO AL TAMAÑO DE LA IMAGEN PARA INCLUIR TODO ===
 
@@ -126,6 +146,30 @@ os-image.bin: stage1.bin stage2.bin kernel_padded.bin module_post.img
 # === EJECUTAR ===
 run: os-image.bin
 	qemu-system-i386 -no-reboot -drive format=raw,file=os-image.bin
+
+.PHONY: full
+full:
+	@echo "Full build: kernel -> module -> kernel (rebuild) -> image"
+	$(MAKE) clean
+	$(MAKE) kernel.bin
+	$(MAKE) kernel_padded.bin
+	$(MAKE) module_post.elf
+	$(MAKE) module_post.img
+	./scripts/generate_module_info.sh $(MODULE_LOAD_ADDRESS)
+	# Rebuild kernel so it can incorporate the generated module_info.h
+	$(MAKE) -B kernel.elf
+	# Segunda pasada: si el kernel cambia de tamaño al incorporar module_info.h,
+	# re-enlazar y regenerar para converger en una dirección estable.
+	$(MAKE) module_post.elf
+	$(MAKE) module_post.img
+	./scripts/generate_module_info.sh $(MODULE_LOAD_ADDRESS)
+	$(MAKE) -B kernel.elf
+	# Final pass: relink module with the last kernel size and refresh info
+	$(MAKE) module_post.elf
+	$(MAKE) module_post.img
+	./scripts/generate_module_info.sh $(MODULE_LOAD_ADDRESS)
+	$(MAKE) -B kernel.elf
+	$(MAKE) os-image.bin
 
 # === RECONSTRUCCIÓN CON TRACES DE MAKE ===
 debug:

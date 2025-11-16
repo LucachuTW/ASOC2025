@@ -1,7 +1,15 @@
 #include <stdint.h>
 #include "modlib.h"
 
-#define MOD_BASE ((volatile uint8_t*)0x00120000)
+#ifndef MOD_BASE
+#ifdef MODULE_LOAD_ADDRESS
+#define MOD_BASE ((volatile uint8_t*)(MODULE_LOAD_ADDRESS))
+#else
+/* Si no se definió: usar valor alto por defecto para minimizar colisiones.
+    0x00200000 es fuera de la memoria baja y distante de la VGA/stack del loader */
+#define MOD_BASE ((volatile uint8_t*)0x00200000)
+#endif
+#endif
 #define VGA_BASE 0x000B8000
 
 void module_entry(void){

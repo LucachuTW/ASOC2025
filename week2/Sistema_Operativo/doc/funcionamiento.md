@@ -56,17 +56,26 @@ El sistema se compone de varios segmentos y archivos que trabajan juntos para ar
 ---
 
 ## 4. `kernel_post/` (Módulos post-boot, la idea es poner aquí el kernel de verdad)
-- **Estructura:**
   - `module_entry.c`: lógica principal del módulo (demo, diagnóstico, UI).
   - `modlib.c`/`modlib.h`: utilidades para el módulo (VGA, formato, teclado).
   - `module.ld`: script de linker ELF, define dirección de carga y símbolos de tamaño.
   - `module_header.S`: versión legacy del formato plano (`MBIN`/`MOD0`).
-- **Formato:**
-  - ELF32 (`EM_386`, little endian) con segmentos `PT_LOAD` apuntando a `0x00120000`.
+  - ELF32 (`EM_386`, little endian) con segmentos `PT_LOAD` apuntando a `MODULE_LOAD_ADDRESS` (seleccionable en el `Makefile`).
   - La entrada del módulo es `e_entry` (exportada por el linker).
-- **Funcionamiento:**
-  - El kernel copia los segmentos `PT_LOAD` en `0x00120000` y salta a `e_entry` tras validar la cabecera.
+  - El kernel copia los segmentos `PT_LOAD` a las direcciones físicas indicadas en los program headers (`p_paddr` o `p_vaddr`) que normalmente coinciden con `MODULE_LOAD_ADDRESS`. El `Makefile` genera `kernel_post/module.ld` a partir de `kernel_post/module.ld.in` sustituyendo `__MODULE_LOAD_ADDRESS__` por el valor de `MODULE_LOAD_ADDRESS`.
+  - Para un valor seguro evite memoria bajo 1MB y zonas VGA/BIOS (por ejemplo `0x00200000` es una opción razonable en este proyecto). Puedes pasar `make MODULE_LOAD_ADDRESS=0x00200000` para compilar el módulo en esa dirección.
+   - Para un valor seguro evite memoria bajo 1MB y zonas VGA/BIOS (por ejemplo `0x00200000` es una opción razonable en este proyecto). Puedes pasar `make MODULE_LOAD_ADDRESS=0x00200000` para compilar el módulo en esa dirección.
+   - Si quieres que el Makefile calcule automáticamente una dirección segura (basada en el tamaño del kernel) y la use tanto para compilar como para linkar el módulo, usa `make full` (build de dos fases):
+
+  ```fish
+  make full
+  ```
+
+  La regla `full` compila primera vez el kernel con `module_info.h` por defecto, calcula la dirección segura según el tamaño del kernel padded, enlaza el módulo con esa dirección, genera `module_info.h` y finalmente recompila el kernel para que imprima/consuma el `MODULE_LOAD_ADDRESS` final.
   - El módulo puede limpiar pantalla, mostrar info, esperar tecla y devolver el control.
+
+Breve: el ELF describe "qué copiar" (p_offset/p_filesz), "a dónde" (p_paddr/p_vaddr), y "dónde empezar" (e_entry). El loader solo copia lo estrictamente necesario y se asegura de que la entrada sea segura.
+Explicación sencilla: el ELF contiene "recetas" (program headers) con instrucciones como "copia N bytes desde este offset del fichero a la dirección X". El loader interpreta estas recetas y copia los segmentos `PT_LOAD` a `p_paddr` (o `p_vaddr`) según el ELF, limpia `.bss` y solo salta a `e_entry` si `e_entry` está dentro de un segmento cargado.
 
 ---
 
